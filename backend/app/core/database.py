@@ -40,12 +40,13 @@ async def get_session():
 
 async def init_db():
     from app.core.migrate import run_migrations
+    from sqlalchemy import text as sa_text
     async with engine.begin() as conn:
-        await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
-    print("Database connected.")
+        await conn.execute(sa_text("SELECT 1"))
+    print("Database connected.", flush=True)
     # Run SQL migrations (idempotent — safe to run on every startup)
     await run_migrations(engine)
-    print("Migrations applied.")
+    print("Migrations applied.", flush=True)
 
 
 async def close_db():
