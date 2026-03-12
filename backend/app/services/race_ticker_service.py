@@ -1,0 +1,229 @@
+"""TravManager — Race Ticker Service
+
+Automatically simulates races when their scheduled game time has passed,
+and generates upcoming race schedules.
+"""
+import logging
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.game_state import GameState
+from app.models.race import RaceSession
+from app.services.game_init_service import calculate_game_time, generate_races_for_week
+from app.services.race_service import simulate_race_session, calculate_start_points
+from app.services.npc_entry_service import auto_enter_npc_horses
+from app.services.progression_service import apply_recovery, apply_weekly_form_changes
+from app.services import finance_service
+from app.services import sponsor_service
+from app.services import market_service
+from app.services import training_service
+from app.services import breeding_service
+
+logger = logging.getLogger(__name__)
+
+
+async def run_qualification_for_session(db: AsyncSession, session_id):
+    """For each race in a session, if entries > max_entries,
+    keep only the top entries by start points. Scratch the rest with full refund.
+    """
+    from app.models.race import Race, RaceEntry
+    from sqlalchemy.orm import selectinload
+
+    races_result = await db.execute(
+        select(Race)
+        .options(selectinload(Race.entries))
+        .where(Race.session_id == session_id, Race.is_finished == False)
+    )
+
+    gs_result = await db.execute(select(GameState).where(GameState.id == 1))
+    gs = gs_result.scalar_one_or_none()
+    game_week = gs.current_game_week if gs else 1
+
+    for race in races_result.scalars().all():
+        active_entries = [e for e in race.entries if not e.is_scratched]
+
+        if len(active_entries) <= race.max_entries:
+            continue
+
+        # Calculate start points for each entry
+        entries_with_points = []
+        for entry in active_entries:
+            sp = await calculate_start_points(db, entry.horse_id)
+            entries_with_points.append((entry, sp["total"]))
+
+        # Sort by points descending
+        entries_with_points.sort(key=lambda x: x[1], reverse=True)
+
+        # Scratch overflow entries (lowest points)
+        for entry, points in entries_with_points[race.max_entries:]:
+            entry.is_scratched = True
+            entry.scratch_reason = f"Ej kvalificerad (startpoäng: {points})"
+
+            # Full refund for qualification scratches
+            if entry.entry_fee_paid > 0:
+                await finance_service.record_transaction(
+                    db, entry.stable_id, entry.entry_fee_paid, "entry_fee_refund",
+                    f"Ej kvalificerad - full återbetalning: {race.race_name}",
+                    game_week,
+                )
+
+            logger.info(
+                f"Qualification scratch: horse {entry.horse_id} from {race.race_name} "
+                f"(points: {points})"
+            )
+
+
+async def tick_races(db: AsyncSession) -> list[dict]:
+    """Check for race sessions whose scheduled game time has passed,
+    run qualification and simulate them.
+
+    Also generates next week's race schedule if needed.
+
+    Returns list of session IDs that were simulated.
+    """
+    gs_result = await db.execute(select(GameState).where(GameState.id == 1))
+    gs = gs_result.scalar_one_or_none()
+    if not gs:
+        return []
+
+    game_time = calculate_game_time(gs.real_week_start)
+    current_week = game_time["game_week"]
+    current_day = game_time["game_day"]
+
+    # Apply daily recovery if game day has advanced
+    current_total_day = game_time["total_game_days"]
+    if gs.last_recovery_game_day is None or current_total_day > gs.last_recovery_game_day:
+        days_elapsed = current_total_day - (gs.last_recovery_game_day or 0)
+        if days_elapsed > 0:
+            await apply_recovery(db, min(days_elapsed, 7))
+            gs.last_recovery_game_day = current_total_day
+            await db.flush()
+
+    # Weekly processing: sponsor income, expired auctions, NPC listings
+    # Uses dedicated tracker to avoid race with get_game_state() which pre-updates current_game_week
+    if gs.last_weekly_processing_week is None or current_week > gs.last_weekly_processing_week:
+        logger.info(f"Running weekly processing for week {current_week} (last processed: {gs.last_weekly_processing_week})")
+
+        # 1. Sponsor income
+        income = await sponsor_service.collect_weekly_sponsor_income(db, current_week)
+        if income > 0:
+            logger.info(f"Sponsor income collected for week {current_week}: {income} öre")
+
+        # 2. Deduct weekly stable costs (rent, feed, staff, driver salaries)
+        costs = await finance_service.deduct_weekly_stable_costs(db, current_week)
+        if costs > 0:
+            logger.info(f"Weekly costs deducted for week {current_week}: {costs} öre")
+
+        # 3. Apply weekly form changes (personality-driven form volatility)
+        await apply_weekly_form_changes(db, current_week)
+
+        # 4. Process completed professional training
+        completed = await training_service.process_professional_training(db, current_week)
+        if completed > 0:
+            logger.info(f"Professional training completed: {completed} horses in week {current_week}")
+
+        # 5. Check for breeding births
+        births = await breeding_service.check_births(db, current_week)
+        if births > 0:
+            logger.info(f"Foals born: {births} in week {current_week}")
+
+        # 6. Horse aging: every 16 game weeks, all horses age 1 year
+        if current_week % 16 == 0:
+            aged = await _age_horses(db, current_week)
+            if aged > 0:
+                logger.info(f"Horses aged: {aged} horses now 1 year older (week {current_week})")
+
+        # 7. Process expired auctions
+        processed = await market_service.process_expired_auctions(db, current_week)
+        if processed > 0:
+            logger.info(f"Processed {processed} expired auctions")
+
+        # 8. Seed new NPC listings periodically (every 2 weeks)
+        if current_week % 2 == 0:
+            seeded = await market_service.seed_npc_listings(db, current_week, count=2)
+            if seeded > 0:
+                logger.info(f"Seeded {seeded} NPC market listings")
+
+        gs.last_weekly_processing_week = current_week
+        await db.flush()
+
+    # Update stored game week
+    gs.current_game_week = current_week
+    gs.current_game_day = current_day
+    await db.flush()
+
+    # Generate races for next week if not already generated
+    await generate_races_for_week(db, current_week + 1)
+
+    # Find unsimulated sessions whose scheduled time has passed
+    sessions_result = await db.execute(
+        select(RaceSession)
+        .where(RaceSession.is_simulated == False)
+        .order_by(RaceSession.game_week, RaceSession.game_day)
+    )
+    sessions = sessions_result.scalars().all()
+
+    simulated = []
+    for session in sessions:
+        session_day = session.game_day if hasattr(session, 'game_day') and session.game_day else 1
+        session_total = (session.game_week - 1) * 7 + session_day
+        current_total = (current_week - 1) * 7 + current_day
+
+        if current_total >= session_total:
+            logger.info(
+                f"Auto-simulating session {session.id} "
+                f"(week {session.game_week}, day {session_day})"
+            )
+
+            # Auto-enter NPC horses into races
+            await auto_enter_npc_horses(db, session.id, current_week)
+
+            # Run qualification first (trim overflowing entries)
+            await run_qualification_for_session(db, session.id)
+
+            # Simulate
+            try:
+                result = await simulate_race_session(db, session.id)
+                simulated.append({
+                    "session_id": str(session.id),
+                    "game_week": session.game_week,
+                    "game_day": session_day,
+                })
+            except Exception as e:
+                logger.error(f"Failed to simulate session {session.id}: {e}")
+
+    return simulated
+
+
+async def _age_horses(db: AsyncSession, current_week: int) -> int:
+    """Every 16 game weeks, all horses age 1 year.
+    Auto-retire horses aged 13+.
+    16 game weeks ≈ 56 real days (2 months) = 1 horse year.
+    """
+    from app.models.horse import Horse
+    from app.models.enums import HorseStatus
+
+    result = await db.execute(
+        select(Horse).where(Horse.status != HorseStatus.RETIRED)
+    )
+    horses = result.scalars().all()
+
+    aged_count = 0
+    retired_count = 0
+    for horse in horses:
+        horse.age_years = (horse.age_years or 0) + 1
+        horse.age_game_weeks = (horse.age_game_weeks or 0) + 16
+        aged_count += 1
+
+        # Auto-retire very old horses (13+ years)
+        if horse.age_years >= 13:
+            horse.status = HorseStatus.RETIRED
+            retired_count += 1
+            logger.info(f"Horse retired due to age: {horse.name} (age {horse.age_years})")
+
+    await db.flush()
+
+    if retired_count > 0:
+        logger.info(f"Auto-retired {retired_count} horses at age 13+")
+
+    return aged_count
