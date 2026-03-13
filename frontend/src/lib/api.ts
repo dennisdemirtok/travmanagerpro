@@ -171,6 +171,10 @@ export const api = {
   getBoxInfo: () => apiFetch<any>("/stable/box-info"),
   upgradeBoxes: () => apiFetch<any>("/stable/upgrade-boxes", { method: "POST" }),
 
+  // Horse database
+  getHorseDatabase: (sort: string = "earnings", search: string = "") =>
+    apiFetch<any>(`/horses/database?sort=${sort}&search=${encodeURIComponent(search)}`),
+
   // Leaderboard
   getStableLeaderboard: () => apiFetch<any>("/leaderboard/stables"),
   getHorseLeaderboard: () => apiFetch<any>("/leaderboard/horses"),

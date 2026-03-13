@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: "/sponsors", label: "Sponsorer", icon: "🤝" },
   { href: "/finances", label: "Ekonomi", icon: "💰" },
   { href: "/leaderboard", label: "Topplista", icon: "🏆" },
+  { href: "/horse-database", label: "Databas", icon: "📋" },
 ];
 
 export function Sidebar() {
