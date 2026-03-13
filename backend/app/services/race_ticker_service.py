@@ -131,17 +131,22 @@ async def tick_races(db: AsyncSession) -> list[dict]:
         if births > 0:
             logger.info(f"Foals born: {births} in week {current_week}")
 
-        # 6. Season transition: age horses at end of each season
+        # 6. Process injury recovery
+        recovered = await _process_injury_recovery(db, current_week)
+        if recovered > 0:
+            logger.info(f"Injury recovery: {recovered} horses healed in week {current_week}")
+
+        # 7. Season transition: age horses at end of each season
         aged = await _check_season_transition(db, current_week, gs)
         if aged > 0:
             logger.info(f"Season transition: {aged} horses aged (week {current_week})")
 
-        # 7. Process expired auctions
+        # 8. Process expired auctions
         processed = await market_service.process_expired_auctions(db, current_week)
         if processed > 0:
             logger.info(f"Processed {processed} expired auctions")
 
-        # 8. Seed new NPC listings periodically (every 2 weeks)
+        # 9. Seed new NPC listings periodically (every 2 weeks)
         if current_week % 2 == 0:
             seeded = await market_service.seed_npc_listings(db, current_week, count=2)
             if seeded > 0:
@@ -297,3 +302,55 @@ async def _age_horses(db: AsyncSession) -> int:
         logger.info(f"Auto-retired {retired_count} horses at age 13+")
 
     return aged_count
+
+
+async def _process_injury_recovery(db: AsyncSession, current_week: int) -> int:
+    """Process weekly injury recovery for all injured horses.
+    Each week, injury_recovery_weeks decrements by 1.
+    When it reaches 0, the horse is healed and set back to READY.
+    """
+    from app.models.horse import Horse
+    from app.models.enums import HorseStatus
+    from app.services import event_service
+
+    result = await db.execute(
+        select(Horse).where(
+            Horse.status == HorseStatus.INJURED,
+            Horse.injury_recovery_weeks != None,
+            Horse.injury_recovery_weeks > 0,
+        )
+    )
+    injured_horses = result.scalars().all()
+
+    recovered_count = 0
+    for horse in injured_horses:
+        # "slow_healer" trait = recovery takes longer
+        recovery_rate = 1
+        traits = horse.special_traits or []
+        if "slow_healer" in traits:
+            # 30% chance recovery doesn't progress this week
+            import random
+            if random.random() < 0.30:
+                recovery_rate = 0
+
+        horse.injury_recovery_weeks = max(0, horse.injury_recovery_weeks - recovery_rate)
+
+        if horse.injury_recovery_weeks <= 0:
+            # Healed!
+            injury_name = horse.injury_type or "skada"
+            horse.injury_type = None
+            horse.injury_recovery_weeks = 0
+            horse.status = HorseStatus.READY
+
+            # Notify stable
+            await event_service.create_event(
+                db, horse.stable_id, "injury",
+                f"{horse.name} är frisk igen",
+                f"{horse.name} har återhämtat sig från {injury_name} och är redo för tävling igen.",
+                current_week,
+            )
+            recovered_count += 1
+            logger.info(f"Horse recovered from injury: {horse.name} ({injury_name})")
+
+    await db.flush()
+    return recovered_count

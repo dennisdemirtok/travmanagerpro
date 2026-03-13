@@ -351,6 +351,46 @@ async def simulate_race_session(db: AsyncSession, session_id):
     gs = gs_result.scalar_one_or_none()
     game_week = gs.current_game_week if gs else 1
 
+    # Pre-load caretaker assignments for all horses in this session
+    from app.models.caretaker import CaretakerAssignment, Caretaker, CaretakerScoutReport
+    from sqlalchemy.orm import selectinload as sel_load
+    all_horse_ids = set()
+    for race in races:
+        for e in race.entries:
+            if not e.is_scratched:
+                all_horse_ids.add(e.horse_id)
+
+    caretaker_data = {}  # horse_id -> {primary_stat, primary_boost, secondary_stat, secondary_boost}
+    if all_horse_ids:
+        ca_result = await db.execute(
+            select(CaretakerAssignment)
+            .options(sel_load(CaretakerAssignment.caretaker))
+            .where(
+                CaretakerAssignment.horse_id.in_(all_horse_ids),
+                CaretakerAssignment.is_active == True,
+            )
+        )
+        for ca in ca_result.scalars().all():
+            ct = ca.caretaker
+            # Look up compatibility score from scout reports
+            scout_result = await db.execute(
+                select(CaretakerScoutReport).where(
+                    CaretakerScoutReport.caretaker_id == ct.id,
+                    CaretakerScoutReport.horse_id == ca.horse_id,
+                )
+            )
+            scout = scout_result.scalar_one_or_none()
+
+            caretaker_data[ca.horse_id] = {
+                "primary_stat": ct.primary_specialty.value if ct.primary_specialty else "",
+                "primary_boost": scout.primary_boost if scout else int(ct.skill / 100 * 8),
+                "secondary_stat": ct.secondary_specialty.value if ct.secondary_specialty else "",
+                "secondary_boost": scout.secondary_boost if scout else int(ct.skill / 100 * 4),
+            }
+
+    # Determine home track region for bonuses
+    track_region = session.track.region if session.track and hasattr(session.track, 'region') else ""
+
     for race in races:
         active_entries = [e for e in race.entries if not e.is_scratched]
 
@@ -364,6 +404,28 @@ async def simulate_race_session(db: AsyncSession, session_id):
 
             hs = _horse_to_engine_stats(h)
             ds = _driver_to_engine_stats(d)
+
+            # Apply caretaker boosts to engine stats
+            ct_data = caretaker_data.get(e.horse_id)
+            if ct_data:
+                hs.caretaker_primary_stat = ct_data["primary_stat"]
+                hs.caretaker_primary_boost = ct_data["primary_boost"]
+                hs.caretaker_secondary_stat = ct_data["secondary_stat"]
+                hs.caretaker_secondary_boost = ct_data["secondary_boost"]
+
+            # Home track bonus: horses racing at home track get a small boost
+            if track_region and hasattr(h, 'track_preference') and h.track_preference:
+                if h.track_preference == track_region:
+                    hs.home_track_bonus = 0.03  # 3% for home region
+                    # Transport tolerance also factors in
+                    transport_tol = getattr(h, 'transport_tolerance', 70)
+                    if transport_tol < 50:
+                        hs.home_track_bonus += 0.02  # Bad travelers benefit more from home
+                else:
+                    # Away track: penalize poor travelers
+                    transport_tol = getattr(h, 'transport_tolerance', 70)
+                    if transport_tol < 40:
+                        hs.home_track_bonus = -0.02  # Penalty for bad traveler away
 
             tactics = Tactics(
                 positioning=Positioning(e.positioning.value if hasattr(e.positioning, 'value') else e.positioning),
@@ -519,16 +581,37 @@ async def simulate_race_session(db: AsyncSession, session_id):
                     horse.best_km_time = Decimal(str(f.km_time_seconds))
                     horse.best_km_time_display = f.km_time_display
 
-                # Add fatigue
-                horse.fatigue = min(100, horse.fatigue + 30)
-                horse.energy = max(0, horse.energy - 40)
-
-                # Apply stat progression
-                from app.services.progression_service import apply_post_race_progression
+                # Apply comprehensive post-race effects (fatigue, energy, form, injuries, stat growth)
+                from app.services.progression_service import apply_post_race_effects
                 active_count = len([e for e in race.entries if not e.is_scratched])
-                await apply_post_race_progression(
-                    db, db_entry.horse_id, f.finish_position, active_count
+                post_race_data = {
+                    "distance": race.distance,
+                    "energy_at_finish": f.energy_at_finish,
+                    "gallop_incidents": f.gallop_incidents,
+                    "sulky_type": getattr(db_entry, 'sulky_type', 'european') or 'european',
+                    "warmup_intensity": getattr(db_entry, 'warmup_intensity', 'normal') or 'normal',
+                    "weather": w_val,
+                    "surface": s_val,
+                    "tempo": db_entry.tempo.value if hasattr(db_entry.tempo, 'value') else str(db_entry.tempo),
+                    "positioning": db_entry.positioning.value if hasattr(db_entry.positioning, 'value') else str(db_entry.positioning),
+                    "was_disqualified": False,
+                    "driver_rating": f.driver_rating,
+                    "km_time_seconds": f.km_time_seconds,
+                    "whip_usage": db_entry.whip_usage.value if hasattr(db_entry.whip_usage, 'value') else str(getattr(db_entry, 'whip_usage', 'normal')),
+                }
+                post_result = await apply_post_race_effects(
+                    db, db_entry.horse_id, f.finish_position, active_count,
+                    race_data=post_race_data,
                 )
+
+                # Create stable event notifications for significant post-race effects
+                if post_result and post_result.get("events"):
+                    for evt_msg in post_result["events"]:
+                        await event_service.create_event(
+                            db, db_entry.stable_id, "race",
+                            f"Efterlopp: {horse.name}",
+                            evt_msg, game_week,
+                        )
 
                 # Record prize money transaction (minus driver commission)
                 if f.prize_money > 0:
@@ -592,7 +675,36 @@ async def simulate_race_session(db: AsyncSession, session_id):
                 db_entry.finish_position = None
                 db_entry.horse.total_starts += 1
                 db_entry.horse.total_dq += 1
-                db_entry.horse.fatigue = min(100, db_entry.horse.fatigue + 40)
+
+                # Apply post-race effects for DQ'd horses too (more severe)
+                from app.services.progression_service import apply_post_race_effects
+                dq_data = {
+                    "distance": race.distance,
+                    "energy_at_finish": d.energy_at_finish,
+                    "gallop_incidents": d.gallop_incidents,
+                    "sulky_type": getattr(db_entry, 'sulky_type', 'european') or 'european',
+                    "warmup_intensity": getattr(db_entry, 'warmup_intensity', 'normal') or 'normal',
+                    "weather": w_val,
+                    "surface": s_val,
+                    "tempo": db_entry.tempo.value if hasattr(db_entry.tempo, 'value') else str(db_entry.tempo),
+                    "positioning": db_entry.positioning.value if hasattr(db_entry.positioning, 'value') else str(db_entry.positioning),
+                    "was_disqualified": True,
+                    "driver_rating": 1,
+                    "km_time_seconds": 0,
+                    "whip_usage": db_entry.whip_usage.value if hasattr(db_entry.whip_usage, 'value') else str(getattr(db_entry, 'whip_usage', 'normal')),
+                }
+                dq_field_size = len([e for e in race.entries if not e.is_scratched])
+                dq_post = await apply_post_race_effects(
+                    db, db_entry.horse_id, dq_field_size, dq_field_size,
+                    race_data=dq_data,
+                )
+                if dq_post and dq_post.get("events"):
+                    for evt_msg in dq_post["events"]:
+                        await event_service.create_event(
+                            db, db_entry.stable_id, "race",
+                            f"Efterlopp: {db_entry.horse.name}",
+                            evt_msg, game_week,
+                        )
 
         # Build result response
         finishers_out = []

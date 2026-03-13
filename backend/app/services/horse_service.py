@@ -50,6 +50,10 @@ async def get_horse_detail(db: AsyncSession, horse_id, stable_id):
     detail["dam_name"] = None
     detail["form_last_5"] = list(horse.form_history or [])[-5:]
 
+    # Injury info
+    detail["injury_type"] = horse.injury_type
+    detail["injury_recovery_weeks"] = horse.injury_recovery_weeks or 0
+
     # Feed plan
     detail["feed_plan"] = [
         {"feed_type": fp.feed_type.value, "percentage": fp.percentage, "cost_per_week": fp.cost_per_week}
@@ -155,6 +159,8 @@ def _horse_to_dict(h: Horse) -> dict:
         "current_shoe": h.current_shoe.value if h.current_shoe else "normal_steel",
         "trend": trend,
         "form_history": form_hist[-10:],  # Last 10 for sparklines
+        "injury_type": h.injury_type,
+        "injury_recovery_weeks": h.injury_recovery_weeks or 0,
     }
 
 

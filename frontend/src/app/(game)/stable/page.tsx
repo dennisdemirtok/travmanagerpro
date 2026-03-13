@@ -179,6 +179,11 @@ export default function StablePage() {
                   </div>
                 </div>
                 <Badge color={STATUS_COLORS[h.status] || "#D4A853"}>{STATUS_LABELS[h.status] || h.status}</Badge>
+                {h.status === "injured" && h.injury_type && (
+                  <span className="text-[10px] text-red-400 ml-1">
+                    {h.injury_type} ({h.injury_recovery_weeks}v kvar)
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-5">
                 <div>

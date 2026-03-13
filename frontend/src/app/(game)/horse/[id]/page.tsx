@@ -61,7 +61,14 @@ export default function HorseProfilePage() {
           <div className="flex items-center gap-3">
             <h2 className="text-2xl font-bold text-trav-gold">{h.name}</h2>
             <Badge color="#6B7280">{genderLabel}</Badge>
-            <Badge color={h.status === "ready" ? "#22c55e" : "#ef4444"}>{h.status}</Badge>
+            <Badge color={h.status === "ready" ? "#22c55e" : h.status === "injured" ? "#ef4444" : "#f59e0b"}>
+              {h.status === "ready" ? "Redo" : h.status === "injured" ? "Skadad" : h.status === "resting" ? "Vila" : h.status}
+            </Badge>
+            {h.status === "injured" && h.injury_type && (
+              <span className="text-xs text-red-400">
+                {h.injury_type} — {h.injury_recovery_weeks} v kvar
+              </span>
+            )}
           </div>
           <p className="text-sm text-gray-500 mt-1">
             {ageYears} år | {h.stable_name} | {h.bloodline || "Okänd blodlinje"} | Optimaldistans: {h.distance_optimum}m

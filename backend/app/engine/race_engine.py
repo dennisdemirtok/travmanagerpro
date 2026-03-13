@@ -121,6 +121,15 @@ class HorseStats:
     # Special traits (list of trait value strings)
     special_traits: list = field(default_factory=list)
 
+    # Caretaker boost (from caretaker assignment)
+    caretaker_primary_stat: str = ""     # e.g. "speed", "endurance"
+    caretaker_primary_boost: int = 0     # 0-15 boost to primary stat
+    caretaker_secondary_stat: str = ""   # secondary specialty
+    caretaker_secondary_boost: int = 0   # 0-7 boost to secondary stat
+
+    # Home track advantage
+    home_track_bonus: float = 0.0  # 0.0 to 0.05 (up to 5% bonus for familiar track)
+
 
 @dataclass
 class DriverStats:
@@ -584,13 +593,34 @@ class RaceEngine:
             else:
                 entry._weight_mod = 0.85
 
-            # Weather sensitivity
-            bad_weather = cond.weather in (Weather.RAIN, Weather.HEAVY_RAIN, Weather.SNOW, Weather.HOT, Weather.WINDY)
-            if bad_weather:
+            # Weather sensitivity — different weather types affect horses differently
+            entry._weather_mod = 1.0
+            if cond.weather == Weather.HEAVY_RAIN:
+                sensitivity = horse.weather_sensitivity / 100
+                entry._weather_mod = 1.0 - sensitivity * 0.10  # Up to -10%
+                entry.energy_drain_modifier *= 1.08  # Racing in heavy rain is harder
+            elif cond.weather == Weather.RAIN:
+                sensitivity = horse.weather_sensitivity / 100
+                entry._weather_mod = 1.0 - sensitivity * 0.06
+            elif cond.weather == Weather.SNOW:
                 sensitivity = horse.weather_sensitivity / 100
                 entry._weather_mod = 1.0 - sensitivity * 0.08
-            else:
-                entry._weather_mod = 1.0
+                entry.energy_drain_modifier *= 1.05
+            elif cond.weather == Weather.HOT:
+                # Hot weather: endurance-heavy horses cope better
+                hot_penalty = (100 - horse.endurance) / 100 * 0.06
+                entry._weather_mod = 1.0 - hot_penalty
+                entry.energy_drain_modifier *= 1.10  # Everyone tires faster
+            elif cond.weather == Weather.COLD:
+                sensitivity = horse.weather_sensitivity / 100
+                entry._weather_mod = 1.0 - sensitivity * 0.04
+            elif cond.weather == Weather.WINDY:
+                # Wind affects outside/trailing runners more
+                if entry.tactics.positioning in (Positioning.OUTSIDE, Positioning.TRAILING):
+                    entry._weather_mod = 1.0 - (horse.strength / 100) * 0.02 - 0.04
+                    entry.energy_drain_modifier *= 1.06
+                else:
+                    entry._weather_mod = 1.0 - 0.01  # Slight impact
 
             # Surface preference
             if horse.surface_preference and horse.surface_preference == cond.surface.value:
@@ -613,6 +643,23 @@ class RaceEngine:
             else:
                 entry._mood_mod = 1.0
 
+            # Condition/Health effect
+            # Low condition = reduced performance ceiling
+            condition_pct = horse.condition / 100
+            if condition_pct < 0.6:
+                entry._condition_mod = 0.90 + condition_pct * 0.10
+            elif condition_pct < 0.8:
+                entry._condition_mod = 0.97
+            else:
+                entry._condition_mod = 1.0
+
+            # Health affects stamina/durability in race
+            health_pct = horse.health / 100
+            if health_pct < 0.5:
+                entry.energy_drain_modifier *= 1.20  # Bad health = tires faster
+            elif health_pct < 0.7:
+                entry.energy_drain_modifier *= 1.08
+
             # Compatibility
             compat = entry.compatibility_score
             if compat >= 86:
@@ -630,6 +677,21 @@ class RaceEngine:
             else:
                 entry._compat_mod = 0.95
                 entry._compat_gallop_mod = 1.10
+
+            # Caretaker stat boosts (applied directly to effective stats for this race)
+            if horse.caretaker_primary_stat and horse.caretaker_primary_boost > 0:
+                stat_name = horse.caretaker_primary_stat
+                if hasattr(horse, stat_name):
+                    boosted = getattr(horse, stat_name) + horse.caretaker_primary_boost
+                    setattr(horse, stat_name, min(100, boosted))
+            if horse.caretaker_secondary_stat and horse.caretaker_secondary_boost > 0:
+                stat_name = horse.caretaker_secondary_stat
+                if hasattr(horse, stat_name):
+                    boosted = getattr(horse, stat_name) + horse.caretaker_secondary_boost
+                    setattr(horse, stat_name, min(100, boosted))
+
+            # Home track advantage
+            entry._home_track_mod = 1.0 + horse.home_track_bonus
 
             # Special traits effects
             entry._trait_sprint_mod = 1.0
@@ -764,6 +826,8 @@ class RaceEngine:
         base *= entry._mood_mod
         base *= entry._compat_mod
         base *= entry._grip
+        base *= getattr(entry, '_home_track_mod', 1.0)
+        base *= getattr(entry, '_condition_mod', 1.0)
 
         # Race phase
         phase_pct = remaining / self.distance
