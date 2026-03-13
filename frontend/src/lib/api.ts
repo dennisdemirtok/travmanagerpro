@@ -175,6 +175,19 @@ export const api = {
   getHorseDatabase: (sort: string = "earnings", search: string = "") =>
     apiFetch<any>(`/horses/database?sort=${sort}&search=${encodeURIComponent(search)}`),
 
+  // Caretakers (Skötare)
+  getCaretakers: () => apiFetch<any>("/caretakers"),
+  scoutCaretaker: (caretakerId: string, horseId: string) =>
+    apiFetch<any>(`/caretakers/${caretakerId}/scout/${horseId}`, { method: "POST" }),
+  hireCaretaker: (caretakerId: string, horseId: string, offeredSalary: number) =>
+    apiFetch<any>(`/caretakers/${caretakerId}/hire`, {
+      method: "POST",
+      body: JSON.stringify({ horse_id: horseId, offered_salary: offeredSalary }),
+    }),
+  fireCaretaker: (assignmentId: string) =>
+    apiFetch<any>(`/caretakers/assignment/${assignmentId}`, { method: "DELETE" }),
+  getHorseCaretaker: (horseId: string) => apiFetch<any>(`/caretakers/horse/${horseId}`),
+
   // Leaderboard
   getStableLeaderboard: () => apiFetch<any>("/leaderboard/stables"),
   getHorseLeaderboard: () => apiFetch<any>("/leaderboard/horses"),

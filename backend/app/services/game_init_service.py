@@ -519,6 +519,10 @@ async def bootstrap_game(db: AsyncSession) -> GameState:
     # === Simulate historical backlog (8 weeks of past races) ===
     await _simulate_historical_backlog(db, num_weeks=8)
 
+    # === Seed NPC caretakers ===
+    from app.services import caretaker_service
+    await caretaker_service.seed_npc_caretakers(db, count=25)
+
     # === Seed initial NPC horse market listings ===
     from app.services.market_service import seed_npc_listings
     await seed_npc_listings(db, game_week=1, count=3)

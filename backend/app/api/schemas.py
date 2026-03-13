@@ -275,3 +275,13 @@ class GameStateResponse(BaseModel):
     season_period: Optional[str] = None
     next_race_at: Optional[datetime] = None
     total_players: int = 0
+
+
+# === CARETAKER ===
+class CaretakerScoutRequest(BaseModel):
+    pass  # No body needed, IDs are in URL
+
+
+class CaretakerHireRequest(BaseModel):
+    horse_id: UUID
+    offered_salary: int

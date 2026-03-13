@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/races", label: "Lopp", icon: "🏁" },
   { href: "/market", label: "Marknad", icon: "🏪" },
   { href: "/drivers", label: "Kuskar", icon: "👤" },
+  { href: "/caretakers", label: "Skötare", icon: "🧑‍🌾" },
   { href: "/breeding", label: "Avel", icon: "🐣" },
   { href: "/sponsors", label: "Sponsorer", icon: "🤝" },
   { href: "/finances", label: "Ekonomi", icon: "💰" },

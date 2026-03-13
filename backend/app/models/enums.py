@@ -261,3 +261,22 @@ NEGATIVE_TRAITS = [
     SpecialTrait.CROWD_SHY,
     SpecialTrait.TEMPERAMENTAL,
 ]
+
+
+class CaretakerSpecialty(str, Enum):
+    SPEED = "speed"
+    ENDURANCE = "endurance"
+    MENTALITY = "mentality"
+    START_ABILITY = "start_ability"
+    SPRINT_STRENGTH = "sprint_strength"
+    BALANCE = "balance"
+    STRENGTH = "strength"
+
+
+class CaretakerPersonality(str, Enum):
+    METICULOUS = "meticulous"
+    CALM = "calm"
+    ENERGETIC = "energetic"
+    EXPERIENCED = "experienced"
+    STRICT = "strict"
+    GENTLE = "gentle"

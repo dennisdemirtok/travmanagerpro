@@ -9,3 +9,4 @@ from app.models.event import StableEvent, PressRelease  # noqa: F401
 from app.models.game_state import GameState, Season, Division, DivisionStanding, DailyHorseLog, CompatibilityCache  # noqa: F401
 from app.models.facility import Facility, Staff, FeedPlan  # noqa: F401
 from app.models.achievement import AchievementDefinition, StableAchievement  # noqa: F401
+from app.models.caretaker import Caretaker, CaretakerAssignment, CaretakerScoutReport  # noqa: F401
