@@ -167,6 +167,8 @@ async def get_race_schedule(db: AsyncSession, stable_id=None):
             "entry_deadline_day": deadline_day,
             "is_v75": game_day == 6,
             "track_id": str(s.track_id) if s.track_id else None,
+            "stretch_length": s.track.stretch_length if s.track and hasattr(s.track, 'stretch_length') else 200,
+            "track_prestige": s.track.prestige if s.track and hasattr(s.track, 'prestige') else 50,
             "booked_driver_ids": list(booked_driver_ids),
         })
     return result
@@ -266,6 +268,8 @@ async def enter_race(db: AsyncSession, race_id, horse_id, driver_id, stable_id, 
         scratched_entry.gallop_safety = tactics.get("gallop_safety", "normal")
         scratched_entry.curve_strategy = tactics.get("curve_strategy", "middle")
         scratched_entry.whip_usage = tactics.get("whip_usage", "normal")
+        scratched_entry.sulky_type = tactics.get("sulky_type", "european")
+        scratched_entry.warmup_intensity = tactics.get("warmup_intensity", "normal")
         scratched_entry.entry_fee_paid = race.entry_fee
         scratched_entry.compatibility_score = compat
         entry = scratched_entry
@@ -280,6 +284,8 @@ async def enter_race(db: AsyncSession, race_id, horse_id, driver_id, stable_id, 
             gallop_safety=tactics.get("gallop_safety", "normal"),
             curve_strategy=tactics.get("curve_strategy", "middle"),
             whip_usage=tactics.get("whip_usage", "normal"),
+            sulky_type=tactics.get("sulky_type", "european"),
+            warmup_intensity=tactics.get("warmup_intensity", "normal"),
             shoe=shoe,
             entry_fee_paid=race.entry_fee,
             compatibility_score=compat,
@@ -364,6 +370,8 @@ async def simulate_race_session(db: AsyncSession, session_id):
                 tempo=Tempo(e.tempo.value if hasattr(e.tempo, 'value') else e.tempo),
                 sprint_order=SprintOrder(e.sprint_order.value if hasattr(e.sprint_order, 'value') else e.sprint_order),
                 gallop_safety=GallopSafety(e.gallop_safety.value if hasattr(e.gallop_safety, 'value') else e.gallop_safety),
+                sulky=getattr(e, 'sulky_type', 'european') or 'european',
+                warmup=getattr(e, 'warmup_intensity', 'normal') or 'normal',
             )
 
             shoe_val = e.shoe.value if hasattr(e.shoe, 'value') else e.shoe

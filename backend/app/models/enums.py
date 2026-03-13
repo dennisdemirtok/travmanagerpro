@@ -280,3 +280,14 @@ class CaretakerPersonality(str, Enum):
     EXPERIENCED = "experienced"
     STRICT = "strict"
     GENTLE = "gentle"
+
+
+class SulkyType(str, Enum):
+    EUROPEAN = "european"        # Standard, balanced
+    AMERICAN = "american"        # Lighter, faster, less stable
+    RACING = "racing"            # Ultra-light, high risk/reward
+
+class WarmupIntensity(str, Enum):
+    LIGHT = "light"              # Save energy, slower start
+    NORMAL = "normal"            # Standard warm-up
+    INTENSE = "intense"          # Sharp start, costs energy

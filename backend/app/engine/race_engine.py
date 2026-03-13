@@ -147,6 +147,8 @@ class Tactics:
     gallop_safety: GallopSafety = GallopSafety.NORMAL
     curve_strategy: CurveStrategy = CurveStrategy.MIDDLE
     whip_usage: WhipUsage = WhipUsage.NORMAL
+    sulky: str = "european"
+    warmup: str = "normal"
 
 
 @dataclass
@@ -281,6 +283,18 @@ SHOE_EFFECTS = {
         "speed_mod": 1.00, "gallop_risk_mod": 0.88, "weight_grams": 250,
         "grip_normal": 1.02, "grip_wet": 0.98, "grip_winter": 0.92,
     },
+}
+
+SULKY_EFFECTS = {
+    "european": {"speed": 1.00, "gallop_risk": 1.00, "energy_drain": 1.00, "stability": 1.00},
+    "american": {"speed": 1.015, "gallop_risk": 1.10, "energy_drain": 0.97, "stability": 0.92},
+    "racing": {"speed": 1.025, "gallop_risk": 1.25, "energy_drain": 0.94, "stability": 0.85},
+}
+
+WARMUP_EFFECTS = {
+    "light": {"start_energy_mod": 1.05, "start_ability_mod": 0.92, "gallop_start_mod": 0.85},
+    "normal": {"start_energy_mod": 1.00, "start_ability_mod": 1.00, "gallop_start_mod": 1.00},
+    "intense": {"start_energy_mod": 0.93, "start_ability_mod": 1.08, "gallop_start_mod": 1.15},
 }
 
 
@@ -543,6 +557,14 @@ class RaceEngine:
             entry._shoe_speed_mod = shoe_fx["speed_mod"]
             entry._shoe_gallop_mod = shoe_fx["gallop_risk_mod"]
 
+            # Sulky effects
+            sulky_type = entry.tactics.sulky if hasattr(entry.tactics, 'sulky') else "european"
+            sulky_fx = SULKY_EFFECTS.get(sulky_type, SULKY_EFFECTS["european"])
+            entry._shoe_speed_mod *= sulky_fx["speed"]
+            entry._shoe_gallop_mod *= sulky_fx["gallop_risk"]
+            entry.sulky_energy_mod = sulky_fx["energy_drain"]
+            entry.sulky_stability = sulky_fx["stability"]
+
             # Grip based on weather
             if cond.weather in (Weather.RAIN, Weather.HEAVY_RAIN):
                 entry._grip = shoe_fx["grip_wet"]
@@ -673,9 +695,15 @@ class RaceEngine:
             h = entry.horse
             d = entry.driver
 
+            # Warmup effects
+            warmup = entry.tactics.warmup if hasattr(entry.tactics, 'warmup') else "normal"
+            warmup_fx = WARMUP_EFFECTS.get(warmup, WARMUP_EFFECTS["normal"])
+            entry.energy *= warmup_fx["start_energy_mod"]
+            warmup_start_mod = warmup_fx["start_ability_mod"]
+
             if cond.start_method == StartMethod.AUTO:
                 start_power = (
-                    h.start_ability * 0.55
+                    h.start_ability * warmup_start_mod * 0.55
                     + d.start_skill * 0.25
                     + self.rng.gauss(0, 5) * 0.15
                     + entry._compat_mod * 2
@@ -685,7 +713,7 @@ class RaceEngine:
             else:  # VOLT
                 volt_bonus = max(0, (8 - entry.post_position)) * 1.5
                 start_power = (
-                    h.start_ability * 0.45
+                    h.start_ability * warmup_start_mod * 0.45
                     + h.mentality * 0.20
                     + d.start_skill * 0.20
                     + self.rng.gauss(0, 4) * 0.15
@@ -704,6 +732,7 @@ class RaceEngine:
 
                 gallop_chance *= entry._shoe_gallop_mod
                 gallop_chance *= entry._compat_gallop_mod
+                gallop_chance *= warmup_fx["gallop_start_mod"]
 
                 if self.rng.random() < gallop_chance * 0.12:
                     self._trigger_gallop(entry, 0, "start")
@@ -851,7 +880,12 @@ class RaceEngine:
                 CurveStrategy.MIDDLE: 1.00,
                 CurveStrategy.OUTER: 1.08,   # Longer path, more energy
             }
-            energy_cost *= curve_mods[entry.tactics.curve_strategy]
+            curve_energy_cost_mod = curve_mods[entry.tactics.curve_strategy]
+            # Sulky stability in curves
+            sulky_stab = getattr(entry, 'sulky_stability', 1.0)
+            if sulky_stab < 1.0:
+                curve_energy_cost_mod *= (2.0 - sulky_stab)  # e.g., 0.85 stability -> 1.15x curve energy
+            energy_cost *= curve_energy_cost_mod
             # Balance stat helps in curves
             actual_speed *= (1.0 + (h.balance - 50) / 2000)
 
@@ -862,6 +896,10 @@ class RaceEngine:
 
         # Drain modifier from tactical interactions
         energy_cost *= entry.energy_drain_modifier
+
+        # Sulky energy drain modifier
+        sulky_e_mod = getattr(entry, 'sulky_energy_mod', 1.0)
+        energy_cost *= sulky_e_mod
 
         # Mental state
         if entry.mental_state < 0.8:
@@ -1314,6 +1352,8 @@ class NPCGenerator:
                 tempo=Tempo.OFFENSIVE,
                 sprint_order=SprintOrder.NORMAL_400M,
                 gallop_safety=GallopSafety.NORMAL,
+                sulky="american",
+                warmup="intense",
             )
         elif role == "CLOSER":
             return Tactics(
@@ -1321,6 +1361,8 @@ class NPCGenerator:
                 tempo=Tempo.CAUTIOUS,
                 sprint_order=SprintOrder.EARLY_600M,
                 gallop_safety=GallopSafety.SAFE,
+                sulky="european",
+                warmup="light",
             )
         elif role == "WILDCARD":
             return Tactics(
@@ -1328,6 +1370,8 @@ class NPCGenerator:
                 tempo=Tempo.OFFENSIVE,
                 sprint_order=SprintOrder.EARLY_600M,
                 gallop_safety=GallopSafety.RISKY,
+                sulky="racing",
+                warmup="intense",
             )
         else:  # STEADY
             return Tactics(
@@ -1335,6 +1379,8 @@ class NPCGenerator:
                 tempo=Tempo.BALANCED,
                 sprint_order=SprintOrder.NORMAL_400M,
                 gallop_safety=GallopSafety.NORMAL,
+                sulky="european",
+                warmup="normal",
             )
 
 

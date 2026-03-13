@@ -195,6 +195,8 @@ async def dev_run_migrations(db: AsyncSession = Depends(get_db)):
         "CREATE TABLE IF NOT EXISTS caretaker_assignments (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), caretaker_id UUID NOT NULL REFERENCES caretakers(id) ON DELETE CASCADE, horse_id UUID NOT NULL REFERENCES horses(id) ON DELETE CASCADE, stable_id UUID NOT NULL REFERENCES stables(id) ON DELETE CASCADE, salary_per_week BIGINT NOT NULL, starts_game_week INTEGER NOT NULL, is_active BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMP NOT NULL DEFAULT NOW())",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_caretaker_active_horse ON caretaker_assignments(horse_id) WHERE is_active = true",
         "CREATE TABLE IF NOT EXISTS caretaker_scout_reports (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), caretaker_id UUID NOT NULL REFERENCES caretakers(id) ON DELETE CASCADE, horse_id UUID NOT NULL REFERENCES horses(id) ON DELETE CASCADE, stable_id UUID NOT NULL REFERENCES stables(id) ON DELETE CASCADE, compatibility_score INTEGER NOT NULL, compatibility_label VARCHAR(20) NOT NULL, primary_boost INTEGER NOT NULL DEFAULT 0, secondary_boost INTEGER NOT NULL DEFAULT 0, scouted_at TIMESTAMP NOT NULL DEFAULT NOW(), game_week INTEGER NOT NULL, UNIQUE(caretaker_id, horse_id))",
+        "ALTER TABLE race_entries ADD COLUMN IF NOT EXISTS sulky_type VARCHAR(20) NOT NULL DEFAULT 'european'",
+        "ALTER TABLE race_entries ADD COLUMN IF NOT EXISTS warmup_intensity VARCHAR(20) NOT NULL DEFAULT 'normal'",
     ]
 
     applied = []

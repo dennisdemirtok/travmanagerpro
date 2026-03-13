@@ -45,6 +45,16 @@ const WHIP_USAGE = [
   { value: "normal", label: "Normal" },
   { value: "aggressive", label: "Aggressiv" },
 ];
+const SULKY = [
+  { value: "european", label: "Europeisk", desc: "Standard, stabil" },
+  { value: "american", label: "Amerikansk", desc: "Lättare, snabbare, mindre stabil" },
+  { value: "racing", label: "Racing", desc: "Ultralätt, hög risk/belöning" },
+];
+const WARMUP = [
+  { value: "light", label: "Lätt", desc: "Sparar energi, långsammare start" },
+  { value: "normal", label: "Normal", desc: "Standard uppvärmning" },
+  { value: "intense", label: "Intensiv", desc: "Skarpare start, kostar energi" },
+];
 
 export default function RacesPage() {
   const queryClient = useQueryClient();
@@ -65,6 +75,8 @@ export default function RacesPage() {
   const [gallopSafety, setGallopSafety] = useState("normal");
   const [curveStrategy, setCurveStrategy] = useState("middle");
   const [whipUsage, setWhipUsage] = useState("normal");
+  const [sulky, setSulky] = useState("european");
+  const [warmup, setWarmup] = useState("normal");
   const [entryError, setEntryError] = useState("");
 
   const enterMutation = useMutation({
@@ -84,7 +96,9 @@ export default function RacesPage() {
         horse_id: selectedHorse,
         driver_id: selectedDriver,
         shoe,
-        tactics: { positioning, tempo, sprint_order: sprint, gallop_safety: gallopSafety, curve_strategy: curveStrategy, whip_usage: whipUsage },
+        sulky_type: sulky,
+        warmup_intensity: warmup,
+        tactics: { positioning, tempo, sprint_order: sprint, gallop_safety: gallopSafety, curve_strategy: curveStrategy, whip_usage: whipUsage, sulky, warmup },
       },
     });
   };
@@ -242,7 +256,7 @@ export default function RacesPage() {
                 <div>
                   <div className="font-semibold text-gray-200">{session.track_name}</div>
                   <div className="text-xs text-gray-500">
-                    {dateStr} | Kl {startTime} | {session.track_city} | {session.weather}
+                    {dateStr} | Kl {startTime} | {session.track_city} | {session.weather} | Upplopp: {session.stretch_length || 200}m
                     {session.track_region && <span className="ml-1 text-gray-600">({session.track_region})</span>}
                   </div>
                 </div>
@@ -328,6 +342,52 @@ export default function RacesPage() {
               </div>
             )}
 
+            {/* Banförhållanden */}
+            <div className="bg-trav-bg rounded-lg p-3 border border-trav-border/50 mb-3">
+              <div className="text-xs font-semibold text-gray-400 mb-2 flex items-center gap-1.5">
+                <span>📊</span> Banförhållanden
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                <div className="text-gray-500">Väder: <span className="text-gray-300">{entryModal.session?.weather || "Klart"}</span></div>
+                <div className="text-gray-500">Underlag: <span className="text-gray-300">{entryModal.surface || "Dirt"}</span></div>
+                <div className="text-gray-500">Upplopp: <span className="text-trav-gold font-medium">{entryModal.session?.stretch_length || 200}m</span></div>
+                <div className="text-gray-500">Startmetod: <span className="text-gray-300">{entryModal.start_method}</span></div>
+                <div className="text-gray-500">Prestige: <span className="text-gray-300">{entryModal.session?.track_prestige || 50}/100</span></div>
+                <div className="text-gray-500">Distans: <span className="text-gray-300">{entryModal.distance}m</span></div>
+              </div>
+            </div>
+
+            {/* Taktiktips */}
+            <div className="bg-blue-900/10 border border-blue-700/20 rounded-lg p-2.5 mb-3">
+              <div className="text-[10px] font-semibold text-blue-400 mb-1">💡 Taktiktips</div>
+              <div className="text-[10px] text-blue-300/70 space-y-0.5">
+                {(entryModal.session?.stretch_length || 200) >= 250 && (
+                  <div>• Långt upplopp ({entryModal.session?.stretch_length}m) — Tidigt spurtval kan löna sig</div>
+                )}
+                {(entryModal.session?.stretch_length || 200) <= 160 && (
+                  <div>• Kort upplopp ({entryModal.session?.stretch_length}m) — Sen spurt kan vara fördelaktigt</div>
+                )}
+                {(entryModal.session?.weather === "rain" || entryModal.session?.weather === "heavy_rain") && (
+                  <div>• Regn — Överväg greppsko eller dubbskor. Barfota ger dåligt grepp</div>
+                )}
+                {(entryModal.session?.weather === "snow") && (
+                  <div>• Snö — Dubbskor rekommenderas starkt. Undvik barfota</div>
+                )}
+                {entryModal.start_method === "volt" && (
+                  <div>• Voltstart — Mentalitet och startförmåga viktigare. Ledning ökar galopprisk</div>
+                )}
+                {(entryModal.session?.track_prestige || 50) > 70 && (
+                  <div>• Prestigefylld bana — Hästar med scenskräck kan prestera sämre</div>
+                )}
+                {entryModal.distance >= 2600 && (
+                  <div>• Lång distans — Uthållighet viktigare. Överväg försiktigt tempo</div>
+                )}
+                {entryModal.distance <= 1640 && (
+                  <div>• Kort distans — Fart och startsnabbhet avgör. Offensivt tempo kan löna sig</div>
+                )}
+              </div>
+            </div>
+
             <div className="space-y-3">
               <div>
                 <label className="text-xs text-gray-500 block mb-1">Häst</label>
@@ -405,6 +465,39 @@ export default function RacesPage() {
                 {gallopSafety === "aggressive" && (
                   <div className="mt-2 text-[10px] text-orange-400 flex items-center gap-1">
                     ⚠️ Aggressiv profil ger bättre position men ökar galopprisken
+                  </div>
+                )}
+              </div>
+
+              {/* Utrustning & Förberedelse */}
+              <div className="border border-trav-border/50 rounded-lg p-3 bg-trav-bg/50">
+                <div className="text-xs font-semibold text-gray-400 mb-2 flex items-center gap-1.5">
+                  <span>🏎️</span> Utrustning & Förberedelse
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[11px] text-gray-500 block mb-1">Sulky</label>
+                    <select value={sulky} onChange={(e) => setSulky(e.target.value)} className="w-full px-2 py-1.5 bg-trav-bg border border-trav-border rounded text-sm text-gray-200">
+                      {SULKY.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <div className="text-[9px] text-gray-600 mt-0.5">{SULKY.find(s => s.value === sulky)?.desc}</div>
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-gray-500 block mb-1">Uppvärmning</label>
+                    <select value={warmup} onChange={(e) => setWarmup(e.target.value)} className="w-full px-2 py-1.5 bg-trav-bg border border-trav-border rounded text-sm text-gray-200">
+                      {WARMUP.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <div className="text-[9px] text-gray-600 mt-0.5">{WARMUP.find(w => w.value === warmup)?.desc}</div>
+                  </div>
+                </div>
+                {sulky === "racing" && (
+                  <div className="mt-2 text-[10px] text-orange-400 flex items-center gap-1">
+                    ⚠️ Racing-sulky ger högre fart men ökar galopprisk avsevärt och är instabil i kurvor
+                  </div>
+                )}
+                {warmup === "intense" && (
+                  <div className="mt-1 text-[10px] text-orange-400 flex items-center gap-1">
+                    ⚠️ Intensiv uppvärmning ger bättre start men kostar energi och ökar startgalopp-risk
                   </div>
                 )}
               </div>

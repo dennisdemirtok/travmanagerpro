@@ -101,6 +101,8 @@ class RaceEntry(Base):
 
     # Equipment
     shoe: Mapped[ShoeType] = mapped_column(PgEnum(ShoeType, "shoe_type"), default=ShoeType.NORMAL_STEEL)
+    sulky_type: Mapped[str] = mapped_column(String(20), default="european")
+    warmup_intensity: Mapped[str] = mapped_column(String(20), default="normal")
 
     # Post position
     post_position: Mapped[int | None] = mapped_column(Integer, nullable=True)
