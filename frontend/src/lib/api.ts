@@ -176,7 +176,7 @@ export const api = {
   getHorseLeaderboard: () => apiFetch<any>("/leaderboard/horses"),
 
   // Dev
-  advanceTime: (hours: number = 12) =>
+  advanceTime: (hours: number = 24) =>
     apiFetch<any>(`/game/dev/advance?hours=${hours}`, { method: "POST" }),
   simulateNext: () =>
     apiFetch<any>("/game/dev/simulate-next", { method: "POST" }),

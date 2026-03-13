@@ -46,10 +46,6 @@ const WHIP_USAGE = [
   { value: "aggressive", label: "Aggressiv" },
 ];
 
-const DAY_NAMES: Record<number, string> = {
-  1: "Mån", 2: "Tis", 3: "Ons", 4: "Tor", 5: "Fre", 6: "Lör", 7: "Sön",
-};
-
 export default function RacesPage() {
   const queryClient = useQueryClient();
   const { data: schedule, isLoading } = useQuery({ queryKey: ["schedule"], queryFn: api.getRaceSchedule });
@@ -103,6 +99,13 @@ export default function RacesPage() {
   const currentTotalDay = gameState?.total_game_days || ((currentWeek - 1) * 7 + currentDay);
 
   const isDeadlinePassed = (session: any) => {
+    // Deadline: 1 real day before race
+    if (session.scheduled_at) {
+      const raceTime = new Date(session.scheduled_at).getTime();
+      const deadlineTime = raceTime - 24 * 60 * 60 * 1000; // 1 day before
+      return Date.now() >= deadlineTime;
+    }
+    // Fallback to game day logic
     const dlWeek = session.entry_deadline_week || session.game_week;
     const dlDay = session.entry_deadline_day || 1;
     const currentTotal = (currentWeek - 1) * 7 + currentDay;
@@ -110,15 +113,32 @@ export default function RacesPage() {
     return currentTotal >= deadlineTotal;
   };
 
-  const getDaysUntil = (session: any) => {
+  const getTimeUntil = (session: any) => {
+    if (session.scheduled_at) {
+      const msUntil = new Date(session.scheduled_at).getTime() - Date.now();
+      const hours = Math.floor(msUntil / (1000 * 60 * 60));
+      const days = Math.floor(hours / 24);
+      return { days, hours: hours % 24, total_hours: hours };
+    }
     const sessionTotalDay = (session.game_week - 1) * 7 + (session.game_day || 1);
-    return sessionTotalDay - currentTotalDay;
+    const daysUntil = sessionTotalDay - currentTotalDay;
+    return { days: daysUntil, hours: 0, total_hours: daysUntil * 24 };
   };
 
-  const getDaysLabel = (daysUntil: number) => {
-    if (daysUntil <= 0) return "Idag";
-    if (daysUntil === 1) return "Imorgon";
-    return `Om ${daysUntil} dagar`;
+  const getTimeLabel = (session: any) => {
+    const { days, hours, total_hours } = getTimeUntil(session);
+    if (total_hours <= 0) return "Pågår";
+    if (days === 0) return `Om ${hours}h`;
+    if (days === 1) return "Imorgon";
+    return `Om ${days} dagar`;
+  };
+
+  const formatSessionDate = (session: any) => {
+    if (!session.scheduled_at) return `V${session.game_week}`;
+    const d = new Date(session.scheduled_at);
+    const dayNames = ["Sön", "Mån", "Tis", "Ons", "Tor", "Fre", "Lör"];
+    const monthNames = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
+    return `${dayNames[d.getDay()]} ${d.getDate()} ${monthNames[d.getMonth()]}`;
   };
 
   // Split sessions
@@ -202,9 +222,10 @@ export default function RacesPage() {
 
       {displaySessions.map((session: any) => {
         const deadlinePassed = isDeadlinePassed(session);
-        const isV75 = session.is_v75 || (session.start_time === "19:20" && session.game_day === 6);
-        const startTime = session.start_time || (session.game_day === 6 ? "19:20" : "12:00");
-        const daysUntil = getDaysUntil(session);
+        const isV75 = session.is_v75 || session.game_day === 6;
+        const startTime = session.start_time || (session.game_day === 6 ? "14:00" : "19:00");
+        const timeInfo = getTimeUntil(session);
+        const dateStr = formatSessionDate(session);
 
         // Filter races by horse eligibility if a horse is selected
         const visibleRaces = filterHorse
@@ -221,7 +242,7 @@ export default function RacesPage() {
                 <div>
                   <div className="font-semibold text-gray-200">{session.track_name}</div>
                   <div className="text-xs text-gray-500">
-                    {session.day_name || DAY_NAMES[session.game_day] || "Okänd"} V{session.game_week} | {session.track_city} | {session.weather} | Kl {startTime}
+                    {dateStr} | Kl {startTime} | {session.track_city} | {session.weather}
                     {session.track_region && <span className="ml-1 text-gray-600">({session.track_region})</span>}
                   </div>
                 </div>
@@ -240,15 +261,12 @@ export default function RacesPage() {
                 ) : (
                   <>
                     <span className={`text-xs font-medium px-2 py-0.5 rounded ${
-                      daysUntil <= 1 ? "bg-red-900/30 text-red-300 border border-red-700/30" :
-                      daysUntil <= 3 ? "bg-yellow-900/30 text-yellow-300 border border-yellow-700/30" :
+                      timeInfo.days === 0 ? "bg-red-900/30 text-red-300 border border-red-700/30" :
+                      timeInfo.days <= 2 ? "bg-yellow-900/30 text-yellow-300 border border-yellow-700/30" :
                       "bg-blue-900/30 text-blue-300 border border-blue-700/30"
                     }`}>
-                      {getDaysLabel(daysUntil)}
+                      {getTimeLabel(session)}
                     </span>
-                    <div className="text-[10px] text-gray-600">
-                      DL: V{session.entry_deadline_week} D{session.entry_deadline_day}
-                    </div>
                   </>
                 )}
               </div>

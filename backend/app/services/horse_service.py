@@ -97,7 +97,8 @@ async def get_horse_detail(db: AsyncSession, horse_id, stable_id):
 
 
 def _horse_to_dict(h: Horse) -> dict:
-    age_years = (h.age_game_weeks or 0) // 16
+    from app.services.game_init_service import SEASON_LENGTH_WEEKS
+    age_years = (h.age_game_weeks or 0) // SEASON_LENGTH_WEEKS
 
     # Determine trend based on form history (actual direction, not just level)
     form_hist = list(h.form_history) if h.form_history else []

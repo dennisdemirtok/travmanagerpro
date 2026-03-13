@@ -1,15 +1,19 @@
 """TravManager — Race Ticker Service
 
-Automatically simulates races when their scheduled game time has passed,
+Automatically simulates races when their scheduled real time has passed,
 and generates upcoming race schedules.
+Handles season transitions (horse aging every SEASON_LENGTH_WEEKS).
 """
 import logging
+from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.game_state import GameState
+from app.models.game_state import GameState, Season
 from app.models.race import RaceSession
-from app.services.game_init_service import calculate_game_time, generate_races_for_week
+from app.services.game_init_service import (
+    calculate_game_time, generate_races_for_week, SEASON_LENGTH_WEEKS,
+)
 from app.services.race_service import simulate_race_session, calculate_start_points
 from app.services.npc_entry_service import auto_enter_npc_horses
 from app.services.progression_service import apply_recovery, apply_weekly_form_changes
@@ -127,11 +131,10 @@ async def tick_races(db: AsyncSession) -> list[dict]:
         if births > 0:
             logger.info(f"Foals born: {births} in week {current_week}")
 
-        # 6. Horse aging: every 16 game weeks, all horses age 1 year
-        if current_week % 16 == 0:
-            aged = await _age_horses(db, current_week)
-            if aged > 0:
-                logger.info(f"Horses aged: {aged} horses now 1 year older (week {current_week})")
+        # 6. Season transition: age horses at end of each season
+        aged = await _check_season_transition(db, current_week, gs)
+        if aged > 0:
+            logger.info(f"Season transition: {aged} horses aged (week {current_week})")
 
         # 7. Process expired auctions
         processed = await market_service.process_expired_auctions(db, current_week)
@@ -155,7 +158,8 @@ async def tick_races(db: AsyncSession) -> list[dict]:
     # Generate races for next week if not already generated
     await generate_races_for_week(db, current_week + 1)
 
-    # Find unsimulated sessions whose scheduled time has passed
+    # Find unsimulated sessions whose scheduled real time has passed
+    now = datetime.utcnow()
     sessions_result = await db.execute(
         select(RaceSession)
         .where(RaceSession.is_simulated == False)
@@ -166,13 +170,23 @@ async def tick_races(db: AsyncSession) -> list[dict]:
     simulated = []
     for session in sessions:
         session_day = session.game_day if hasattr(session, 'game_day') and session.game_day else 1
-        session_total = (session.game_week - 1) * 7 + session_day
-        current_total = (current_week - 1) * 7 + current_day
 
-        if current_total >= session_total:
+        # Use scheduled_at (real datetime) if available, otherwise fallback to game day
+        should_simulate = False
+        if session.scheduled_at:
+            sched = session.scheduled_at.replace(tzinfo=None) if session.scheduled_at.tzinfo else session.scheduled_at
+            should_simulate = now >= sched
+        else:
+            # Fallback for legacy sessions without proper scheduled_at
+            session_total = (session.game_week - 1) * 7 + session_day
+            current_total = (current_week - 1) * 7 + current_day
+            should_simulate = current_total >= session_total
+
+        if should_simulate:
             logger.info(
                 f"Auto-simulating session {session.id} "
-                f"(week {session.game_week}, day {session_day})"
+                f"(week {session.game_week}, day {session_day}, "
+                f"scheduled_at={session.scheduled_at})"
             )
 
             # Auto-enter NPC horses into races
@@ -195,10 +209,66 @@ async def tick_races(db: AsyncSession) -> list[dict]:
     return simulated
 
 
-async def _age_horses(db: AsyncSession, current_week: int) -> int:
-    """Every 16 game weeks, all horses age 1 year.
+async def _check_season_transition(db: AsyncSession, current_week: int, gs: GameState) -> int:
+    """Check if the current season has ended and transition to a new one.
+    Each season = SEASON_LENGTH_WEEKS game weeks = 1 horse year.
+    Returns number of horses aged (0 if no transition).
+    """
+    from app.models.enums import SeasonPeriod
+
+    if not gs.current_season_id:
+        return 0
+
+    sr = await db.execute(select(Season).where(Season.id == gs.current_season_id))
+    season = sr.scalar_one_or_none()
+    if not season:
+        return 0
+
+    # Check if current week exceeds the season's end week
+    if current_week <= season.end_game_week:
+        return 0
+
+    # === Season transition ===
+    logger.info(
+        f"Season {season.season_number} ended (weeks {season.start_game_week}-{season.end_game_week}). "
+        f"Current week: {current_week}"
+    )
+
+    # 1. Age all horses
+    aged = await _age_horses(db)
+
+    # 2. Mark old season as finished
+    season.is_active = False
+    season.current_period = SeasonPeriod.OFF_SEASON
+
+    # 3. Create new season
+    new_start = season.end_game_week + 1
+    new_season = Season(
+        season_number=season.season_number + 1,
+        start_game_week=new_start,
+        end_game_week=new_start + SEASON_LENGTH_WEEKS - 1,
+        current_period=SeasonPeriod.REGULAR,
+        is_active=True,
+    )
+    db.add(new_season)
+    await db.flush()
+
+    # 4. Update game state to point to new season
+    gs.current_season_id = new_season.id
+    await db.flush()
+
+    logger.info(
+        f"Season {new_season.season_number} started "
+        f"(weeks {new_season.start_game_week}-{new_season.end_game_week})"
+    )
+
+    return aged
+
+
+async def _age_horses(db: AsyncSession) -> int:
+    """Age all non-retired horses by 1 year (called at season transition).
     Auto-retire horses aged 13+.
-    16 game weeks ≈ 56 real days (2 months) = 1 horse year.
+    1 season = SEASON_LENGTH_WEEKS game weeks = 1 horse year.
     """
     from app.models.horse import Horse
     from app.models.enums import HorseStatus
@@ -212,7 +282,7 @@ async def _age_horses(db: AsyncSession, current_week: int) -> int:
     retired_count = 0
     for horse in horses:
         horse.age_years = (horse.age_years or 0) + 1
-        horse.age_game_weeks = (horse.age_game_weeks or 0) + 16
+        horse.age_game_weeks = (horse.age_game_weeks or 0) + SEASON_LENGTH_WEEKS
         aged_count += 1
 
         # Auto-retire very old horses (13+ years)

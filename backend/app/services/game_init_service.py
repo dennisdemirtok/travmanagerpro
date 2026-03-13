@@ -13,15 +13,20 @@ from app.data.real_tracks import REAL_TRACKS
 from app.data.real_horses import REAL_HORSES, map_real_to_game_stats, GENDER_MAP
 
 
-# Weekly race template: (game_day, start_time, [(name, class, div_level, distance, start_method, prize_pool, entry_fee, min_start_points)])
+# Season length in game weeks (1 season = 1 horse year)
+SEASON_LENGTH_WEEKS = 10
+
+# Weekly race template: (game_day, start_time_swedish, [(name, class, div_level, distance, start_method, prize_pool, entry_fee, min_start_points)])
+# game_day 3 = Wednesday, game_day 6 = Saturday (real weekdays)
+# Times are in Swedish time (CET/CEST), converted to UTC when scheduling
 WEEKLY_RACE_TEMPLATE = [
-    (3, "12:00", [  # Wednesday lunch session
+    (3, "19:00", [  # Wednesday evening session (19:00 Swedish time)
         ("Vardagslopp", RaceClass.EVERYDAY, 6, 2140, RaceStartMethod.AUTO, 5_000_000, 100_000, 0),
         ("Ungdomslopp", RaceClass.AGE_3, None, 1640, RaceStartMethod.AUTO, 4_000_000, 80_000, 0),
         ("Bronsdivisionen", RaceClass.BRONZE, 5, 2140, RaceStartMethod.VOLT, 10_000_000, 200_000, 10),
         ("Vardagssprint", RaceClass.EVERYDAY, 6, 1640, RaceStartMethod.AUTO, 4_000_000, 100_000, 0),
     ]),
-    (6, "19:20", [  # Saturday evening V75 session
+    (6, "14:00", [  # Saturday afternoon V75 session (14:00 Swedish time)
         ("Silverdivisionen", RaceClass.SILVER, 3, 2640, RaceStartMethod.VOLT, 20_000_000, 500_000, 30),
         ("V75-1", RaceClass.BRONZE, 4, 2140, RaceStartMethod.VOLT, 15_000_000, 300_000, 15),
         ("V75-2 Stayerlopp", RaceClass.BRONZE, 5, 2640, RaceStartMethod.VOLT, 8_000_000, 200_000, 10),
@@ -134,9 +139,23 @@ async def _seed_stallion_registry(db: AsyncSession):
     logger.info(f"Seeded {len(STALLIONS)} stallions in breeding registry")
 
 
+def _compute_scheduled_at(real_week_start: datetime, target_game_week: int, game_day: int, start_time: str) -> datetime:
+    """Compute the real UTC datetime for a race session.
+    real_week_start is Monday 00:00 UTC of game week 1.
+    start_time is in Swedish time (CET = UTC+1).
+    """
+    # Base date: Monday of the target week
+    race_date = real_week_start + timedelta(days=(target_game_week - 1) * 7 + (game_day - 1))
+    hour, minute = map(int, start_time.split(":"))
+    # Convert Swedish time to UTC (CET = UTC+1, approximate — ignores DST)
+    utc_hour = max(0, hour - 1)
+    return race_date.replace(hour=utc_hour, minute=minute, second=0, microsecond=0)
+
+
 async def generate_races_for_week(db: AsyncSession, target_game_week: int):
     """Generate race sessions for a specific game week.
     Called when current week is target_game_week - 1 (races published 1 week ahead).
+    Computes real scheduled_at datetime for each session.
     """
     existing = await db.execute(
         select(RaceSession).where(RaceSession.game_week == target_game_week)
@@ -149,14 +168,25 @@ async def generate_races_for_week(db: AsyncSession, target_game_week: int):
     if not tracks:
         return
 
+    # Get real_week_start for scheduled_at computation
+    gs_result = await db.execute(select(GameState).where(GameState.id == 1))
+    gs = gs_result.scalar_one_or_none()
+    real_week_start = gs.real_week_start if gs else datetime.utcnow()
+    # Strip timezone if present
+    if real_week_start.tzinfo:
+        real_week_start = real_week_start.replace(tzinfo=None)
+
     rng = random.Random(target_game_week * 1337)
 
     for game_day, start_time, race_configs in WEEKLY_RACE_TEMPLATE:
         track = rng.choice(tracks)
         weather = rng.choice([WeatherType.CLEAR, WeatherType.CLEAR, WeatherType.CLOUDY, WeatherType.RAIN])
 
+        # Compute real scheduled datetime
+        scheduled_at = _compute_scheduled_at(real_week_start, target_game_week, game_day, start_time)
+
         session = RaceSession(
-            scheduled_at=datetime.utcnow(),  # placeholder
+            scheduled_at=scheduled_at,
             track_id=track.id,
             session_name=f"Omgång V{target_game_week} D{game_day}",
             game_week=target_game_week,
@@ -209,9 +239,9 @@ async def bootstrap_game(db: AsyncSession) -> GameState:
     if result.scalar_one_or_none():
         return (await db.execute(select(GameState).where(GameState.id == 1))).scalar_one()
 
-    # Create season
+    # Create season (10 weeks per season = 1 horse year)
     season = Season(
-        season_number=1, start_game_week=1, end_game_week=32,
+        season_number=1, start_game_week=1, end_game_week=SEASON_LENGTH_WEEKS,
         current_period=SeasonPeriod.REGULAR, is_active=True,
     )
     db.add(season)
@@ -229,10 +259,19 @@ async def bootstrap_game(db: AsyncSession) -> GameState:
         db.add(Division(level=level, name=name, group_number=1, season_id=season.id))
     await db.flush()
 
+    # Anchor real_week_start to Monday 00:00 UTC of current week
+    # so game_day 1=Mon, 3=Wed, 6=Sat matches real weekdays
+    now = datetime.utcnow()
+    days_since_monday = now.weekday()  # 0=Mon, 1=Tue, ..., 6=Sun
+    monday = (now - timedelta(days=days_since_monday)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
     # Create game state
     gs = GameState(
         id=1, current_game_week=1, current_game_day=1,
         current_season_id=season.id,
+        real_week_start=monday,
     )
     db.add(gs)
 
@@ -385,8 +424,8 @@ async def bootstrap_game(db: AsyncSession) -> GameState:
             npc_horse = Horse(
                 stable_id=npc_stable.id, name=name_h,
                 gender=gender,
-                birth_game_week=max(1, 1 - (age * 16)),  # 16 game weeks per year
-                age_game_weeks=age * 16,
+                birth_game_week=max(1, 1 - (age * SEASON_LENGTH_WEEKS)),
+                age_game_weeks=age * SEASON_LENGTH_WEEKS,
                 age_years=age,
                 status=HorseStatus.READY, is_npc=True,
                 speed=game_stats["speed"],
@@ -468,7 +507,7 @@ async def bootstrap_game(db: AsyncSession) -> GameState:
             stable_id=npc_stable.id, driver_id=npc_driver.id,
             contract_type=ContractType.PERMANENT,
             salary_per_week=300000,
-            starts_game_week=1, ends_game_week=32,
+            starts_game_week=1, ends_game_week=9999,  # Permanent NPC contracts
             is_active=True,
         )
         db.add(npc_contract)
@@ -538,13 +577,15 @@ async def _simulate_historical_backlog(db: AsyncSession, num_weeks: int = 8):
 
 def calculate_game_time(game_start: datetime) -> dict:
     """Calculate current game day/week from real time.
-    1 real day = 2 game days (1 game day = 12 real hours).
-    Clock follows real time."""
+    1 real day = 1 game day (1:1 real time).
+    real_week_start is anchored to Monday 00:00 UTC so
+    game_day 1=Mon, 3=Wed, 6=Sat matches real weekdays.
+    """
     now = datetime.utcnow()
     # Strip timezone if present (DB may return tz-aware)
     start = game_start.replace(tzinfo=None) if game_start.tzinfo else game_start
     elapsed_seconds = (now - start).total_seconds()
-    elapsed_game_days = int(elapsed_seconds / (12 * 3600))  # 12 real hours = 1 game day
+    elapsed_game_days = int(elapsed_seconds / (24 * 3600))  # 1 real day = 1 game day
 
     game_week = (elapsed_game_days // 7) + 1
     game_day = (elapsed_game_days % 7) + 1  # 1-7
@@ -572,12 +613,18 @@ async def get_game_state(db: AsyncSession):
 
     season_number = None
     season_period = None
+    season_start_week = 1
     if gs.current_season_id:
         sr = await db.execute(select(Season).where(Season.id == gs.current_season_id))
         season = sr.scalar_one_or_none()
         if season:
             season_number = season.season_number
             season_period = season.current_period.value
+            season_start_week = season.start_game_week
+
+    # Calculate season-relative week (1..SEASON_LENGTH_WEEKS)
+    season_week = game_time["game_week"] - season_start_week + 1
+    season_week = max(1, min(season_week, SEASON_LENGTH_WEEKS))
 
     return {
         "current_game_week": game_time["game_week"],
@@ -585,14 +632,18 @@ async def get_game_state(db: AsyncSession):
         "total_game_days": game_time["total_game_days"],
         "current_season": season_number,
         "season_period": season_period,
+        "season_week": season_week,
+        "season_total_weeks": SEASON_LENGTH_WEEKS,
         "next_race_at": gs.next_race_at.isoformat() if gs.next_race_at else None,
         "total_players": gs.total_active_players,
         "game_start": gs.real_week_start.isoformat(),
     }
 
 
-async def dev_advance_time(db: AsyncSession, hours: int = 12):
-    """DEV ONLY: Advance game time by shifting the start reference backward."""
+async def dev_advance_time(db: AsyncSession, hours: int = 24):
+    """DEV ONLY: Advance game time by shifting the start reference backward.
+    Default 24h = 1 game day (1:1 real time).
+    """
     result = await db.execute(select(GameState).where(GameState.id == 1))
     gs = result.scalar_one_or_none()
     if not gs:

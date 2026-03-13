@@ -60,7 +60,8 @@ async def create_new_player(db: AsyncSession, username: str, email: str, passwor
         spd, end, ment = base(), base(), base()
         sta, spr, bal, stg = base(), base(), base(), base()
 
-        age_weeks = age_years * 16  # 1 year = 16 game weeks
+        from app.services.game_init_service import SEASON_LENGTH_WEEKS
+        age_weeks = age_years * SEASON_LENGTH_WEEKS  # 1 year = 1 season
 
         horse = Horse(
             stable_id=stable.id, name=name,

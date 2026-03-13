@@ -71,9 +71,9 @@ export default function DashboardPage() {
   });
 
   const advanceMutation = useMutation({
-    mutationFn: () => api.advanceTime(12),
+    mutationFn: () => api.advanceTime(24),
     onSuccess: (data) => {
-      setDevMsg(`Spolat 12h → V${data.new_game_week} D${data.new_game_day}`);
+      setDevMsg(`Spolat 24h → V${data.new_game_week} D${data.new_game_day}`);
       queryClient.invalidateQueries();
     },
     onError: (e: Error) => setDevMsg(`Fel: ${e.message}`),
@@ -112,7 +112,23 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-bold text-gray-200">Dashboard</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold text-gray-200">Dashboard</h2>
+        {gameState?.current_season && (
+          <div className="flex items-center gap-3">
+            <Badge color="#D4A853">Säsong {gameState.current_season}</Badge>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400">Vecka {gameState.season_week || 1}/{gameState.season_total_weeks || 10}</span>
+              <div className="w-24 h-1.5 bg-trav-border rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-trav-gold rounded-full transition-all"
+                  style={{ width: `${((gameState.season_week || 1) / (gameState.season_total_weeks || 10)) * 100}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-4 gap-4">
@@ -252,12 +268,22 @@ export default function DashboardPage() {
           <h3 className="text-sm font-semibold text-gray-300 mb-3">🏇 Kommande lopp</h3>
           {sessions.length === 0 && <p className="text-xs text-gray-500">Inga kommande lopp</p>}
           {sessions.map((s: any) => {
-            const currentTotal = ((gameState?.current_game_week || 1) - 1) * 7 + (gameState?.current_game_day || 1);
-            const sessionTotal = ((s.game_week || 1) - 1) * 7 + (s.game_day || 1);
-            const daysUntil = sessionTotal - currentTotal;
+            // Use scheduled_at for real-time countdown
+            const scheduledAt = s.scheduled_at ? new Date(s.scheduled_at) : null;
+            const now = new Date();
+            const msUntil = scheduledAt ? scheduledAt.getTime() - now.getTime() : 0;
+            const hoursUntil = Math.floor(msUntil / (1000 * 60 * 60));
+            const daysUntil = Math.floor(hoursUntil / 24);
             const yourEntries = s.races?.reduce((sum: number, r: any) => sum + (r.your_entries?.length || 0), 0) || 0;
             const totalRaces = s.races?.length || 0;
-            const startTime = s.start_time || (s.game_day === 6 ? "19:20" : "12:00");
+            const startTime = s.start_time || (s.game_day === 6 ? "14:00" : "19:00");
+
+            // Format real date: "Ons 19 mar"
+            const DAY_NAMES_SHORT = ["Sön", "Mån", "Tis", "Ons", "Tor", "Fre", "Lör"];
+            const MONTH_NAMES = ["jan", "feb", "mar", "apr", "maj", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
+            const dateStr = scheduledAt
+              ? `${DAY_NAMES_SHORT[scheduledAt.getDay()]} ${scheduledAt.getDate()} ${MONTH_NAMES[scheduledAt.getMonth()]}`
+              : "";
 
             return (
               <div key={s.id} className="py-2.5 border-b border-trav-border last:border-0">
@@ -265,22 +291,25 @@ export default function DashboardPage() {
                   <div>
                     <div className="font-semibold text-gray-300 text-sm flex items-center gap-2">
                       {s.track_name}
-                      {(s.is_v75 || (s.start_time === "19:20" && s.game_day === 6)) && (
+                      {(s.is_v75 || s.game_day === 6) && (
                         <Badge color="#D4A853">V75</Badge>
                       )}
                     </div>
                     <div className="text-xs text-gray-500">
-                      {s.day_name || ""} V{s.game_week} | {s.weather} | Kl {startTime} | {totalRaces} lopp
+                      {dateStr} | Kl {startTime} | {s.weather} | {totalRaces} lopp
                     </div>
                   </div>
                   <div className="text-right">
                     <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${
-                      daysUntil <= 0 ? "bg-green-900/30 text-green-300 border border-green-700/30" :
-                      daysUntil === 1 ? "bg-red-900/30 text-red-300 border border-red-700/30" :
-                      daysUntil <= 3 ? "bg-yellow-900/30 text-yellow-300 border border-yellow-700/30" :
+                      daysUntil <= 0 && hoursUntil <= 0 ? "bg-green-900/30 text-green-300 border border-green-700/30" :
+                      daysUntil === 0 ? "bg-red-900/30 text-red-300 border border-red-700/30" :
+                      daysUntil <= 2 ? "bg-yellow-900/30 text-yellow-300 border border-yellow-700/30" :
                       "bg-blue-900/30 text-blue-300 border border-blue-700/30"
                     }`}>
-                      {daysUntil <= 0 ? "Idag" : daysUntil === 1 ? "Imorgon" : `Om ${daysUntil} dagar`}
+                      {daysUntil <= 0 && hoursUntil <= 0 ? "Pågår" :
+                       daysUntil === 0 ? `Om ${hoursUntil}h` :
+                       daysUntil === 1 ? "Imorgon" :
+                       `Om ${daysUntil} dagar`}
                     </span>
                     {yourEntries > 0 && (
                       <div className="text-[10px] text-green-400 mt-0.5">{yourEntries} anmäld(a)</div>
@@ -326,7 +355,7 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-orange-400">🛠️ Dev-verktyg</h3>
           <span className="text-xs text-gray-500 tabular-nums">
-            Speltid: V{gameState?.current_game_week || "?"} D{gameState?.current_game_day || "?"} ({gameState?.total_game_days || 0} dagar)
+            Säsong {gameState?.current_season || "?"} | V{gameState?.current_game_week || "?"} D{gameState?.current_game_day || "?"} | Säsongsvecka {gameState?.season_week || "?"}/{gameState?.season_total_weeks || 10}
           </span>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -335,7 +364,7 @@ export default function DashboardPage() {
             onClick={() => advanceMutation.mutate()}
             disabled={advanceMutation.isPending}
           >
-            {advanceMutation.isPending ? "..." : "⏩ +1 dag (12h)"}
+            {advanceMutation.isPending ? "..." : "⏩ +1 dag (24h)"}
           </Button>
           <Button
             size="sm"
