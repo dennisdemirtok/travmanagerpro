@@ -117,6 +117,60 @@ async def dev_reset_time(db: AsyncSession = Depends(get_db)):
     }
 
 
+@router.post("/dev/regen-races")
+async def dev_regen_races(db: AsyncSession = Depends(get_db)):
+    """DEV ONLY: Delete ALL race sessions (simulated & unsimulated) and regenerate
+    for current week and next week with correct scheduled_at dates."""
+    from sqlalchemy import text, delete
+    from app.models.game_state import GameState
+    from app.models.race import Race, RaceEntry, RaceResultSummary
+    from app.services.game_init_service import calculate_game_time, generate_races_for_week
+
+    gs_result = await db.execute(select(GameState).where(GameState.id == 1))
+    gs = gs_result.scalar_one_or_none()
+    if not gs:
+        raise HTTPException(status_code=404, detail="Speldata inte initierad")
+
+    game_time = calculate_game_time(gs.real_week_start)
+    current_week = game_time["game_week"]
+
+    # Delete old race data (entries, results, races, sessions)
+    await db.execute(text("DELETE FROM race_result_summaries"))
+    await db.execute(text("DELETE FROM race_entries"))
+    await db.execute(text("DELETE FROM races"))
+    await db.execute(text("DELETE FROM race_sessions"))
+    await db.flush()
+
+    # Regenerate for current week and next week
+    for week in range(current_week, current_week + 2):
+        await generate_races_for_week(db, week)
+
+    await db.flush()
+
+    # Count what we created
+    count_result = await db.execute(
+        select(RaceSession).where(RaceSession.is_simulated == False)
+    )
+    new_sessions = count_result.scalars().all()
+
+    return {
+        "status": "ok",
+        "current_week": current_week,
+        "current_day": game_time["game_day"],
+        "regenerated_weeks": [current_week, current_week + 1],
+        "new_sessions": len(new_sessions),
+        "sessions": [
+            {
+                "id": str(s.id),
+                "game_week": s.game_week,
+                "game_day": s.game_day,
+                "scheduled_at": s.scheduled_at.isoformat() if s.scheduled_at else None,
+            }
+            for s in new_sessions
+        ],
+    }
+
+
 @router.post("/dev/run-migrations")
 async def dev_run_migrations(db: AsyncSession = Depends(get_db)):
     """DEV ONLY: Run all pending migrations manually."""
