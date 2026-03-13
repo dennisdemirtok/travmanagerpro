@@ -42,6 +42,11 @@ async def horse_database(
     result = await db.execute(q)
     rows = result.all()
 
+    def _calc_total_skill(h):
+        avg = (h.speed + h.endurance + h.mentality + h.start_ability +
+               h.sprint_strength + h.balance + h.strength) / 7
+        return max(1, min(20, round(avg / 5)))
+
     return {
         "horses": [
             {
@@ -52,6 +57,7 @@ async def horse_database(
                 "stable_name": stable_name,
                 "is_npc": h.is_npc,
                 "status": h.status.value,
+                "total_skill": _calc_total_skill(h),
                 "speed": h.speed,
                 "endurance": h.endurance,
                 "sprint_strength": h.sprint_strength,

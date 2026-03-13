@@ -7,6 +7,7 @@ import { formatOre, statColor } from "@/lib/utils";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { SkillBars } from "@/components/ui/SkillBars";
 
 type SortKey = "earnings" | "name" | "age" | "speed" | "starts";
 
@@ -111,6 +112,7 @@ export default function HorseDatabasePage() {
                   <th className="text-left py-2 w-10">#</th>
                   <th className="text-left py-2">Hast</th>
                   <th className="text-left py-2">Stall</th>
+                  <th className="text-center py-2">Total</th>
                   <th className="text-center py-2">Fart</th>
                   <th className="text-center py-2">Uth.</th>
                   <th className="text-center py-2">Spurt</th>
@@ -147,6 +149,9 @@ export default function HorseDatabasePage() {
                       </div>
                     </td>
                     <td className="py-2.5 text-gray-400 text-xs">{h.stable_name}</td>
+                    <td className="py-2.5">
+                      <SkillBars rating={h.total_skill} compact />
+                    </td>
                     <td className="py-2.5 text-center">
                       <span className={statColor(h.speed)}>{h.speed}</span>
                     </td>

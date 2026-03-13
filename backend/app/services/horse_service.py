@@ -121,12 +121,18 @@ def _horse_to_dict(h: Horse) -> dict:
         else:
             trend = "stable"
 
+    # Total skill rating (1-20 scale, like Xpert Eleven)
+    avg_stat = (h.speed + h.endurance + h.mentality + h.start_ability +
+                h.sprint_strength + h.balance + h.strength) / 7
+    total_skill = max(1, min(20, round(avg_stat / 5)))
+
     return {
         "id": str(h.id),
         "name": h.name,
         "gender": h.gender.value,
         "age_years": age_years,
         "status": h.status.value,
+        "total_skill": total_skill,
         "speed": h.speed,
         "endurance": h.endurance,
         "mentality": h.mentality,

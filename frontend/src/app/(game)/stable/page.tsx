@@ -7,6 +7,7 @@ import { formatOre, statColor } from "@/lib/utils";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { StatBar } from "@/components/ui/StatBar";
+import { SkillBars, calculateSkillRating } from "@/components/ui/SkillBars";
 import { MiniChart } from "@/components/ui/MiniChart";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
@@ -180,6 +181,10 @@ export default function StablePage() {
                 <Badge color={STATUS_COLORS[h.status] || "#D4A853"}>{STATUS_LABELS[h.status] || h.status}</Badge>
               </div>
               <div className="flex items-center gap-5">
+                <div>
+                  <div className="text-[10px] text-gray-500 mb-0.5">Total</div>
+                  <SkillBars rating={h.total_skill || calculateSkillRating(h)} compact />
+                </div>
                 <div className="w-20"><StatBar value={h.speed} label="Fart" color={statColor(h.speed)} small /></div>
                 <div className="w-20"><StatBar value={h.endurance} label="Uthållig." color={statColor(h.endurance)} small /></div>
                 <div className="w-20"><StatBar value={h.sprint_strength} label="Spurt" color={statColor(h.sprint_strength)} small /></div>

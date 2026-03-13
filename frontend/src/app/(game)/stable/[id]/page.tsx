@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { formatOre, statColor } from "@/lib/utils";
 import { Card } from "@/components/ui/Card";
 import { StatBar } from "@/components/ui/StatBar";
+import { SkillBars, calculateSkillRating } from "@/components/ui/SkillBars";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 
@@ -187,6 +188,9 @@ export default function HorseDetailPage() {
       <div className="grid grid-cols-3 gap-6">
         <Card className="col-span-2">
           <h3 className="text-sm font-semibold text-gray-300 mb-4">Egenskaper</h3>
+          <div className="mb-4">
+            <SkillBars rating={horse.total_skill || calculateSkillRating(horse)} label="Total" />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             {stats.map((s) => (
               <StatBar key={s.label} value={s.value} label={s.label} color={statColor(s.value)} />
