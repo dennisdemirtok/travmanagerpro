@@ -115,3 +115,33 @@ async def dev_reset_time(db: AsyncSession = Depends(get_db)):
         "current_day": days_since_monday + 1,
         "message": f"Tid nollställd till måndag {monday.strftime('%Y-%m-%d')}. Dag {days_since_monday + 1} (1=Mån).",
     }
+
+
+@router.post("/dev/run-migrations")
+async def dev_run_migrations(db: AsyncSession = Depends(get_db)):
+    """DEV ONLY: Run all pending migrations manually."""
+    from sqlalchemy import text
+
+    migrations = [
+        "ALTER TABLE horses ADD COLUMN IF NOT EXISTS form_history JSONB NOT NULL DEFAULT '[]'",
+        "ALTER TABLE horses ADD COLUMN IF NOT EXISTS age_years INTEGER NOT NULL DEFAULT 3",
+        "ALTER TABLE horses ADD COLUMN IF NOT EXISTS special_traits JSONB DEFAULT '[]'",
+        "ALTER TABLE horses ADD COLUMN IF NOT EXISTS traits_revealed BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE horses ADD COLUMN IF NOT EXISTS is_breeding_available BOOLEAN NOT NULL DEFAULT false",
+        "ALTER TABLE horses ADD COLUMN IF NOT EXISTS stud_fee BIGINT",
+        "ALTER TABLE horses ADD COLUMN IF NOT EXISTS pregnancy_week INTEGER",
+        "ALTER TABLE horses ADD COLUMN IF NOT EXISTS expected_foal_week INTEGER",
+        "ALTER TABLE horses ADD COLUMN IF NOT EXISTS training_locked_until INTEGER",
+        "ALTER TABLE horses ADD COLUMN IF NOT EXISTS training_last_result JSONB",
+    ]
+
+    applied = []
+    for sql in migrations:
+        try:
+            await db.execute(text(sql))
+            applied.append(sql.split("IF NOT EXISTS ")[1].split(" ")[0] if "IF NOT EXISTS" in sql else "ok")
+        except Exception as e:
+            applied.append(f"skip: {str(e)[:80]}")
+
+    await db.commit()
+    return {"status": "ok", "applied": applied}
