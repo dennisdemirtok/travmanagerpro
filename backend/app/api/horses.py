@@ -18,8 +18,14 @@ async def list_horses(
     stable=Depends(get_current_stable),
     db: AsyncSession = Depends(get_db),
 ):
-    horses = await horse_service.list_horses(db, stable.id, status_filter=status, sort_by=sort)
-    return {"horses": horses, "total": len(horses)}
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        horses = await horse_service.list_horses(db, stable.id, status_filter=status, sort_by=sort)
+        return {"horses": horses, "total": len(horses)}
+    except Exception as e:
+        logger.exception(f"Error listing horses for stable {stable.id}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{horse_id}")
