@@ -48,7 +48,7 @@ async def get_horse_detail(db: AsyncSession, horse_id, stable_id):
     detail["bloodline_name"] = horse.bloodline.name if horse.bloodline else None
     detail["sire_name"] = None
     detail["dam_name"] = None
-    detail["form_last_5"] = []
+    detail["form_last_5"] = list(horse.form_history or [])[-5:]
 
     # Feed plan
     detail["feed_plan"] = [
@@ -98,13 +98,27 @@ async def get_horse_detail(db: AsyncSession, horse_id, stable_id):
 
 def _horse_to_dict(h: Horse) -> dict:
     age_years = (h.age_game_weeks or 0) // 16
-    # Determine trend based on form
-    if h.form > 60:
-        trend = "up"
-    elif h.form < 40:
-        trend = "down"
+
+    # Determine trend based on form history (actual direction, not just level)
+    form_hist = list(h.form_history) if h.form_history else []
+    if len(form_hist) >= 2:
+        recent_avg = sum(form_hist[-3:]) / len(form_hist[-3:])
+        older_avg = sum(form_hist[:-3] or form_hist[:1]) / len(form_hist[:-3] or form_hist[:1])
+        diff = recent_avg - older_avg
+        if diff > 3:
+            trend = "up"
+        elif diff < -3:
+            trend = "down"
+        else:
+            trend = "stable"
     else:
-        trend = "stable"
+        # Fallback: base on current form level
+        if h.form > 60:
+            trend = "up"
+        elif h.form < 40:
+            trend = "down"
+        else:
+            trend = "stable"
 
     return {
         "id": str(h.id),
@@ -133,6 +147,7 @@ def _horse_to_dict(h: Horse) -> dict:
         "current_training": h.current_training.value if h.current_training else None,
         "current_shoe": h.current_shoe.value if h.current_shoe else "normal_steel",
         "trend": trend,
+        "form_history": form_hist[-10:],  # Last 10 for sparklines
     }
 
 

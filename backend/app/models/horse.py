@@ -114,6 +114,9 @@ class Horse(Base):
     traits_revealed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     age_years: Mapped[int] = mapped_column(Integer, default=3, server_default="3")
 
+    # Form history (list of recent form values for sparklines)
+    form_history: Mapped[list] = mapped_column(JSONB, default=list, server_default="'[]'")
+
     # Injury
     injury_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     injury_recovery_weeks: Mapped[int | None] = mapped_column(Integer, default=0)

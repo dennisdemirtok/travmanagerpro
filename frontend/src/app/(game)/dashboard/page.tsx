@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { formatOre } from "@/lib/utils";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
 
 const TONES: Record<string, string> = {
   humble: "Ödmjuk", confident: "Självsäker", provocative: "Provokativ",
@@ -44,6 +45,7 @@ export default function DashboardPage() {
   const { data: schedule } = useQuery({ queryKey: ["schedule"], queryFn: api.getRaceSchedule });
   const { data: events } = useQuery({ queryKey: ["events"], queryFn: () => api.getEvents() });
   const { data: transactions } = useQuery({ queryKey: ["transactions"], queryFn: () => api.getTransactions({ limit: 5 }) });
+  const { data: horses } = useQuery({ queryKey: ["horses"], queryFn: api.getHorses });
 
   const [prTone, setPrTone] = useState("confident");
   const [prContent, setPrContent] = useState("");
@@ -99,6 +101,15 @@ export default function DashboardPage() {
   const txnList = transactions?.transactions || [];
   const eventList = events?.events || [];
 
+  // Stable strength calculations
+  const horseList = Array.isArray(horses) ? horses : horses?.horses || [];
+  const readyHorses = horseList.filter((h: any) => h.status === "ready");
+  const avgForm = horseList.length > 0 ? Math.round(horseList.reduce((s: number, h: any) => s + (h.form || 0), 0) / horseList.length) : 0;
+  const avgSpeed = horseList.length > 0 ? Math.round(horseList.reduce((s: number, h: any) => s + (h.speed || 0), 0) / horseList.length) : 0;
+  const totalEarnings = horseList.reduce((s: number, h: any) => s + (h.total_earnings || 0), 0);
+  const formTrendUp = horseList.filter((h: any) => h.trend === "up").length;
+  const formTrendDown = horseList.filter((h: any) => h.trend === "down").length;
+
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-bold text-gray-200">Dashboard</h2>
@@ -110,6 +121,38 @@ export default function DashboardPage() {
         <Card><div className="text-xs text-gray-500">Rykte</div><div className="text-xl font-bold text-gray-200">{stable?.reputation || 0}</div></Card>
         <Card><div className="text-xs text-gray-500">Fans</div><div className="text-xl font-bold text-gray-200">{stable?.fan_count || 0}</div></Card>
       </div>
+
+      {/* Stable Strength */}
+      {horseList.length > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-300">📊 Stallstyrka</h3>
+            <span className="text-xs text-gray-500">{readyHorses.length}/{horseList.length} redo</span>
+          </div>
+          <div className="grid grid-cols-4 gap-4">
+            <div className="text-center">
+              <div className={`text-lg font-bold ${avgForm >= 60 ? "text-green-400" : avgForm < 40 ? "text-red-400" : "text-yellow-400"}`}>{avgForm}</div>
+              <div className="text-[10px] text-gray-500">Snitt Form</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-blue-400">{avgSpeed}</div>
+              <div className="text-[10px] text-gray-500">Snitt Fart</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-trav-gold">{formatOre(totalEarnings)}</div>
+              <div className="text-[10px] text-gray-500">Total intjäning</div>
+            </div>
+            <div className="text-center">
+              <div className="text-lg font-bold text-gray-200 flex items-center justify-center gap-1">
+                {formTrendUp > 0 && <span className="text-green-400 text-sm">↑{formTrendUp}</span>}
+                {formTrendDown > 0 && <span className="text-red-400 text-sm">↓{formTrendDown}</span>}
+                {formTrendUp === 0 && formTrendDown === 0 && <span className="text-gray-500 text-sm">→</span>}
+              </div>
+              <div className="text-[10px] text-gray-500">Formtrend</div>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* Daily checkup */}
       <Card>
@@ -206,13 +249,47 @@ export default function DashboardPage() {
 
         {/* Upcoming races */}
         <Card>
-          <h3 className="text-sm font-semibold text-gray-300 mb-3">Kommande lopp</h3>
-          {sessions.map((s: any) => (
-            <div key={s.id} className="py-2 border-b border-trav-border last:border-0">
-              <div className="font-semibold text-gray-300 text-sm">{s.track_name} - <span className="text-gray-500">{s.weather}</span></div>
-              <div className="text-xs text-gray-500">{s.races?.length || 0} lopp</div>
-            </div>
-          ))}
+          <h3 className="text-sm font-semibold text-gray-300 mb-3">🏇 Kommande lopp</h3>
+          {sessions.length === 0 && <p className="text-xs text-gray-500">Inga kommande lopp</p>}
+          {sessions.map((s: any) => {
+            const currentTotal = ((gameState?.current_game_week || 1) - 1) * 7 + (gameState?.current_game_day || 1);
+            const sessionTotal = ((s.game_week || 1) - 1) * 7 + (s.game_day || 1);
+            const daysUntil = sessionTotal - currentTotal;
+            const yourEntries = s.races?.reduce((sum: number, r: any) => sum + (r.your_entries?.length || 0), 0) || 0;
+            const totalRaces = s.races?.length || 0;
+            const startTime = s.start_time || (s.game_day === 6 ? "19:20" : "12:00");
+
+            return (
+              <div key={s.id} className="py-2.5 border-b border-trav-border last:border-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-semibold text-gray-300 text-sm flex items-center gap-2">
+                      {s.track_name}
+                      {(s.is_v75 || (s.start_time === "19:20" && s.game_day === 6)) && (
+                        <Badge color="#D4A853">V75</Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {s.day_name || ""} V{s.game_week} | {s.weather} | Kl {startTime} | {totalRaces} lopp
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className={`text-[11px] font-medium px-2 py-0.5 rounded ${
+                      daysUntil <= 0 ? "bg-green-900/30 text-green-300 border border-green-700/30" :
+                      daysUntil === 1 ? "bg-red-900/30 text-red-300 border border-red-700/30" :
+                      daysUntil <= 3 ? "bg-yellow-900/30 text-yellow-300 border border-yellow-700/30" :
+                      "bg-blue-900/30 text-blue-300 border border-blue-700/30"
+                    }`}>
+                      {daysUntil <= 0 ? "Idag" : daysUntil === 1 ? "Imorgon" : `Om ${daysUntil} dagar`}
+                    </span>
+                    {yourEntries > 0 && (
+                      <div className="text-[10px] text-green-400 mt-0.5">{yourEntries} anmäld(a)</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </Card>
       </div>
 

@@ -30,6 +30,21 @@ const SHOES = [
   { value: "light_aluminum", label: "Lättsko" },
   { value: "barefoot", label: "Barfota" },
 ];
+const GALLOP_SAFETY = [
+  { value: "safe", label: "Försiktig", desc: "Lägre risk, lugnare lopp" },
+  { value: "normal", label: "Normal", desc: "Balanserad riskprofil" },
+  { value: "aggressive", label: "Aggressiv", desc: "Högre risk, bättre position" },
+];
+const CURVE_STRATEGY = [
+  { value: "inside", label: "Innerled", desc: "Kortare väg, trångt" },
+  { value: "middle", label: "Mellanled", desc: "Balanserat" },
+  { value: "outside", label: "Ytterled", desc: "Fri väg, längre" },
+];
+const WHIP_USAGE = [
+  { value: "none", label: "Ingen piska" },
+  { value: "normal", label: "Normal" },
+  { value: "aggressive", label: "Aggressiv" },
+];
 
 const DAY_NAMES: Record<number, string> = {
   1: "Mån", 2: "Tis", 3: "Ons", 4: "Tor", 5: "Fre", 6: "Lör", 7: "Sön",
@@ -51,6 +66,9 @@ export default function RacesPage() {
   const [tempo, setTempo] = useState("balanced");
   const [sprint, setSprint] = useState("normal_400m");
   const [shoe, setShoe] = useState("normal_steel");
+  const [gallopSafety, setGallopSafety] = useState("normal");
+  const [curveStrategy, setCurveStrategy] = useState("middle");
+  const [whipUsage, setWhipUsage] = useState("normal");
   const [entryError, setEntryError] = useState("");
 
   const enterMutation = useMutation({
@@ -70,7 +88,7 @@ export default function RacesPage() {
         horse_id: selectedHorse,
         driver_id: selectedDriver,
         shoe,
-        tactics: { positioning, tempo, sprint_order: sprint, gallop_safety: "normal", curve_strategy: "middle", whip_usage: "normal" },
+        tactics: { positioning, tempo, sprint_order: sprint, gallop_safety: gallopSafety, curve_strategy: curveStrategy, whip_usage: whipUsage },
       },
     });
   };
@@ -280,7 +298,7 @@ export default function RacesPage() {
       {/* Entry Modal */}
       {entryModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setEntryModal(null)}>
-          <div className="bg-trav-card border border-trav-border rounded-xl p-6 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-trav-card border border-trav-border rounded-xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-gray-200 mb-4">Anmäl till lopp</h3>
             <div className="text-sm text-gray-400 mb-2">{entryModal.race_name} - {entryModal.distance}m | {formatOre(entryModal.prize_pool)}</div>
             {entryModal.min_start_points > 0 && (
@@ -314,26 +332,65 @@ export default function RacesPage() {
                   })}
                 </select>
               </div>
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="text-xs text-gray-500 block mb-1">Position</label>
-                  <select value={positioning} onChange={(e) => setPositioning(e.target.value)} className="w-full px-2 py-1.5 bg-trav-bg border border-trav-border rounded text-sm text-gray-200">
-                    {POSITIONING.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
+              {/* Taktik-sektion */}
+              <div className="border border-trav-border/50 rounded-lg p-3 bg-trav-bg/50">
+                <div className="text-xs font-semibold text-gray-400 mb-2 flex items-center gap-1.5">
+                  <span>⚙️</span> Grundtaktik
                 </div>
-                <div>
-                  <label className="text-xs text-gray-500 block mb-1">Tempo</label>
-                  <select value={tempo} onChange={(e) => setTempo(e.target.value)} className="w-full px-2 py-1.5 bg-trav-bg border border-trav-border rounded text-sm text-gray-200">
-                    {TEMPO.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 block mb-1">Spurt</label>
-                  <select value={sprint} onChange={(e) => setSprint(e.target.value)} className="w-full px-2 py-1.5 bg-trav-bg border border-trav-border rounded text-sm text-gray-200">
-                    {SPRINT.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[11px] text-gray-500 block mb-1">Position</label>
+                    <select value={positioning} onChange={(e) => setPositioning(e.target.value)} className="w-full px-2 py-1.5 bg-trav-bg border border-trav-border rounded text-sm text-gray-200">
+                      {POSITIONING.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-gray-500 block mb-1">Tempo</label>
+                    <select value={tempo} onChange={(e) => setTempo(e.target.value)} className="w-full px-2 py-1.5 bg-trav-bg border border-trav-border rounded text-sm text-gray-200">
+                      {TEMPO.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-gray-500 block mb-1">Spurt</label>
+                    <select value={sprint} onChange={(e) => setSprint(e.target.value)} className="w-full px-2 py-1.5 bg-trav-bg border border-trav-border rounded text-sm text-gray-200">
+                      {SPRINT.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
                 </div>
               </div>
+
+              {/* Riskprofil-sektion */}
+              <div className="border border-trav-border/50 rounded-lg p-3 bg-trav-bg/50">
+                <div className="text-xs font-semibold text-gray-400 mb-2 flex items-center gap-1.5">
+                  <span>🎯</span> Riskprofil
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[11px] text-gray-500 block mb-1">Galoppsäkerhet</label>
+                    <select value={gallopSafety} onChange={(e) => setGallopSafety(e.target.value)} className="w-full px-2 py-1.5 bg-trav-bg border border-trav-border rounded text-sm text-gray-200">
+                      {GALLOP_SAFETY.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-gray-500 block mb-1">Kurvstrategi</label>
+                    <select value={curveStrategy} onChange={(e) => setCurveStrategy(e.target.value)} className="w-full px-2 py-1.5 bg-trav-bg border border-trav-border rounded text-sm text-gray-200">
+                      {CURVE_STRATEGY.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-[11px] text-gray-500 block mb-1">Piskanvändning</label>
+                    <select value={whipUsage} onChange={(e) => setWhipUsage(e.target.value)} className="w-full px-2 py-1.5 bg-trav-bg border border-trav-border rounded text-sm text-gray-200">
+                      {WHIP_USAGE.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {gallopSafety === "aggressive" && (
+                  <div className="mt-2 text-[10px] text-orange-400 flex items-center gap-1">
+                    ⚠️ Aggressiv profil ger bättre position men ökar galopprisken
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="text-xs text-gray-500 block mb-1">Skor</label>
                 <select value={shoe} onChange={(e) => setShoe(e.target.value)} className="w-full px-3 py-2 bg-trav-bg border border-trav-border rounded-lg text-gray-200">

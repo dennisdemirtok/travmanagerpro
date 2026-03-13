@@ -7,6 +7,7 @@ import { formatOre, statColor } from "@/lib/utils";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { StatBar } from "@/components/ui/StatBar";
+import { MiniChart } from "@/components/ui/MiniChart";
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 
@@ -165,23 +166,39 @@ export default function StablePage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div>
-                  <div className="font-semibold text-gray-200">{h.name}</div>
-                  <div className="text-xs text-gray-500">{h.age_years} år | {h.gender === "mare" ? "Sto" : h.gender === "stallion" ? "Hingst" : "Valack"}</div>
+                  <div className="font-semibold text-gray-200 flex items-center gap-2">
+                    {h.name}
+                    {h.trend === "up" && <span className="text-green-400 text-[10px] font-bold px-1 py-0.5 rounded bg-green-900/30 border border-green-700/30">↑</span>}
+                    {h.trend === "down" && <span className="text-red-400 text-[10px] font-bold px-1 py-0.5 rounded bg-red-900/30 border border-red-700/30">↓</span>}
+                    {h.trend === "stable" && <span className="text-gray-500 text-[10px] font-bold px-1 py-0.5 rounded bg-gray-800/50 border border-gray-700/30">→</span>}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {h.age_years} år | {h.gender === "mare" ? "Sto" : h.gender === "stallion" ? "Hingst" : "Valack"}
+                    {h.total_starts > 0 && <span className="ml-1">| {h.total_starts} starter ({h.total_wins}–{(h.total_starts - h.total_wins)})</span>}
+                  </div>
                 </div>
                 <Badge color={STATUS_COLORS[h.status] || "#D4A853"}>{STATUS_LABELS[h.status] || h.status}</Badge>
-                {h.trend === "up" && <span className="text-green-400 text-xs">↑ Stigande form</span>}
-                {h.trend === "down" && <span className="text-red-400 text-xs">↓ Sjunkande form</span>}
               </div>
-              <div className="flex items-center gap-6">
-                <div className="w-24"><StatBar value={h.speed} label="Fart" color={statColor(h.speed)} small /></div>
-                <div className="w-24"><StatBar value={h.endurance} label="Uthållighet" color={statColor(h.endurance)} small /></div>
-                <div className="w-24"><StatBar value={h.sprint_strength} label="Spurt" color={statColor(h.sprint_strength)} small /></div>
-                <div className="text-right">
-                  <div className="text-xs text-gray-500">Form</div>
-                  <div className={`text-sm font-semibold ${h.form >= 60 ? "text-green-400" : h.form < 40 ? "text-red-400" : "text-yellow-400"}`}>{h.form}</div>
+              <div className="flex items-center gap-5">
+                <div className="w-20"><StatBar value={h.speed} label="Fart" color={statColor(h.speed)} small /></div>
+                <div className="w-20"><StatBar value={h.endurance} label="Uthållig." color={statColor(h.endurance)} small /></div>
+                <div className="w-20"><StatBar value={h.sprint_strength} label="Spurt" color={statColor(h.sprint_strength)} small /></div>
+                <div className="flex items-center gap-2">
+                  {h.form_history?.length > 1 && (
+                    <MiniChart
+                      data={h.form_history}
+                      color={h.form >= 60 ? "#4ADE80" : h.form < 40 ? "#F87171" : "#FBBF24"}
+                      width={60}
+                      height={24}
+                    />
+                  )}
+                  <div className="text-right min-w-[36px]">
+                    <div className="text-[10px] text-gray-500">Form</div>
+                    <div className={`text-sm font-bold ${h.form >= 60 ? "text-green-400" : h.form < 40 ? "text-red-400" : "text-yellow-400"}`}>{h.form}</div>
+                  </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-xs text-gray-500">Intjäning</div>
+                <div className="text-right min-w-[60px]">
+                  <div className="text-[10px] text-gray-500">Intjäning</div>
                   <div className="text-sm text-trav-gold">{formatOre(h.total_earnings || 0)}</div>
                 </div>
               </div>

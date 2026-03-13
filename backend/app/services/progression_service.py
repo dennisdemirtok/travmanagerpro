@@ -18,6 +18,17 @@ from app.models.enums import PersonalityType, TrainingProgram
 
 logger = logging.getLogger(__name__)
 
+MAX_FORM_HISTORY = 20  # Keep last 20 form snapshots
+
+
+def _record_form(horse: Horse):
+    """Append current form to the horse's form_history (max 20 entries)."""
+    history = list(horse.form_history) if horse.form_history else []
+    history.append(horse.form)
+    if len(history) > MAX_FORM_HISTORY:
+        history = history[-MAX_FORM_HISTORY:]
+    horse.form_history = history
+
 
 def _get_age_growth_multiplier(age_years: int) -> float:
     """Xperteleven-style age development: younger horses develop faster."""
@@ -140,6 +151,7 @@ async def apply_weekly_form_changes(db: AsyncSession, game_week: int):
             horse.form = max(0, min(100, horse.form + form_change))
             if horse.form != old_form:
                 form_changes += 1
+                _record_form(horse)
 
     await db.flush()
     if form_changes > 0:
@@ -196,6 +208,9 @@ async def apply_post_race_progression(
         horse.form = min(100, horse.form + rng.randint(2, 6))
     elif finish_position > max(1, field_size - 2):
         horse.form = max(0, horse.form - rng.randint(2, 8))
+
+    # Record form snapshot after race
+    _record_form(horse)
 
     # Stat growth with age-based jumps
     stat_pairs = [
