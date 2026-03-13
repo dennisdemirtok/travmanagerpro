@@ -3,12 +3,10 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { formatOre } from "@/lib/utils";
+import { formatOre, statColor } from "@/lib/utils";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { StatBar } from "@/components/ui/StatBar";
-import { statColor } from "@/lib/utils";
 
 type SortKey = "earnings" | "name" | "age" | "speed" | "starts";
 
