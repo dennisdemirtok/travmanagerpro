@@ -135,7 +135,7 @@ async def dev_regen_races(db: AsyncSession = Depends(get_db)):
     current_week = game_time["game_week"]
 
     # Delete old race data (entries, results, races, sessions)
-    await db.execute(text("DELETE FROM race_result_summaries"))
+    await db.execute(text("DELETE FROM race_results_summary"))
     await db.execute(text("DELETE FROM race_entries"))
     await db.execute(text("DELETE FROM races"))
     await db.execute(text("DELETE FROM race_sessions"))
