@@ -71,3 +71,47 @@ async def dev_tick(db: AsyncSession = Depends(get_db)):
     """DEV ONLY: Force a game tick (recovery, weekly processing, race simulation)."""
     await race_ticker_service.tick_races(db)
     return {"status": "ok"}
+
+
+@router.post("/dev/reset-time")
+async def dev_reset_time(db: AsyncSession = Depends(get_db)):
+    """DEV ONLY: Reset real_week_start to Monday of current week and fix season to 10 weeks.
+    Use this after upgrading from 2x speed to 1:1 time system.
+    """
+    from datetime import datetime, timedelta
+    from app.models.game_state import GameState, Season
+    from app.services.game_init_service import SEASON_LENGTH_WEEKS
+
+    gs_result = await db.execute(select(GameState).where(GameState.id == 1))
+    gs = gs_result.scalar_one_or_none()
+    if not gs:
+        raise HTTPException(status_code=404, detail="Speldata inte initierad")
+
+    # Anchor real_week_start to Monday 00:00 UTC of current week
+    now = datetime.utcnow()
+    days_since_monday = now.weekday()
+    monday = (now - timedelta(days=days_since_monday)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    gs.real_week_start = monday
+    gs.current_game_week = 1
+    gs.current_game_day = days_since_monday + 1
+    gs.last_weekly_processing_week = None
+    gs.last_recovery_game_day = None
+
+    # Fix active season to 10 weeks
+    if gs.current_season_id:
+        sr = await db.execute(select(Season).where(Season.id == gs.current_season_id))
+        season = sr.scalar_one_or_none()
+        if season:
+            season.start_game_week = 1
+            season.end_game_week = SEASON_LENGTH_WEEKS
+
+    await db.flush()
+
+    return {
+        "status": "ok",
+        "real_week_start": monday.isoformat(),
+        "current_day": days_since_monday + 1,
+        "message": f"Tid nollställd till måndag {monday.strftime('%Y-%m-%d')}. Dag {days_since_monday + 1} (1=Mån).",
+    }
