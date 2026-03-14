@@ -388,6 +388,12 @@ async def simulate_race_session(db: AsyncSession, session_id):
                 "secondary_boost": scout.secondary_boost if scout else int(ct.skill / 100 * 4),
             }
 
+    # Pre-load hidden properties for all horses in this session (v2)
+    from app.services.hidden_properties_service import ensure_hidden_properties
+    hidden_props_data = {}  # horse_id -> HorseHiddenProperties
+    for hid in all_horse_ids:
+        hidden_props_data[hid] = await ensure_hidden_properties(db, hid)
+
     # Determine home track region for bonuses
     track_region = session.track.region if session.track and hasattr(session.track, 'region') else ""
 
@@ -412,6 +418,38 @@ async def simulate_race_session(db: AsyncSession, session_id):
                 hs.caretaker_primary_boost = ct_data["primary_boost"]
                 hs.caretaker_secondary_stat = ct_data["secondary_stat"]
                 hs.caretaker_secondary_boost = ct_data["secondary_boost"]
+
+            # Apply hidden properties to engine stats (v2)
+            hp = hidden_props_data.get(e.horse_id)
+            if hp:
+                # Engine uses hidden_* prefixed names
+                hs.hidden_barefoot_affinity = hp.barefoot_affinity or 0
+                hs.hidden_sulky_american_affinity = hp.american_sulky_affinity or 0
+                hs.hidden_sulky_racing_affinity = hp.racing_sulky_affinity or 0
+                hs.hidden_tight_curve = hp.tight_curve_ability or 0
+                hs.hidden_long_homestretch = hp.long_homestretch_affinity or 0
+                hs.hidden_heavy_track = hp.heavy_track_affinity or 0
+                hs.hidden_crowd_response = hp.crowd_response or 0
+                hs.hidden_wind_sensitivity = float(hp.wind_sensitivity or 1.0)
+                hs.hidden_temperature_optimum = hp.temperature_optimum or 12
+                hs.hidden_temperature_tolerance = hp.temperature_tolerance or 15
+                hs.hidden_natural_speed_ceiling = hp.natural_speed_ceiling or 0
+                hs.hidden_sprint_gear = hp.hidden_sprint_gear or False
+                # Also set non-prefixed for v2 engine code
+                hs.barefoot_affinity = hp.barefoot_affinity or 0
+                hs.american_sulky_affinity = hp.american_sulky_affinity or 0
+                hs.racing_sulky_affinity = hp.racing_sulky_affinity or 0
+                hs.tight_curve_ability = hp.tight_curve_ability or 0
+                hs.long_homestretch_affinity = hp.long_homestretch_affinity or 0
+                hs.heavy_track_affinity = hp.heavy_track_affinity or 0
+                hs.crowd_response = hp.crowd_response or 0
+                hs.wind_sensitivity = float(hp.wind_sensitivity or 1.0)
+                hs.temperature_optimum = hp.temperature_optimum or 12
+                hs.temperature_tolerance = hp.temperature_tolerance or 15
+                hs.natural_speed_ceiling = hp.natural_speed_ceiling or 0
+                hs.confidence_sensitivity = float(hp.confidence_sensitivity or 1.0)
+                hs.recovery_rate = float(hp.recovery_rate or 1.0)
+                hs.start_frequency_preference = hp.start_frequency_preference or "normal"
 
             # Home track bonus: horses racing at home track get a small boost
             if track_region and hasattr(h, 'track_preference') and h.track_preference:
@@ -476,6 +514,14 @@ async def simulate_race_session(db: AsyncSession, session_id):
         track_stretch = session.track.stretch_length if session.track and hasattr(session.track, 'stretch_length') and session.track.stretch_length else 200
         track_prestige = session.track.prestige if session.track and hasattr(session.track, 'prestige') else 50
 
+        # Determine stretch class from length
+        if track_stretch >= 300:
+            stretch_class = "long"
+        elif track_stretch <= 150:
+            stretch_class = "short"
+        else:
+            stretch_class = "medium"
+
         conditions = RaceConditions(
             distance=race.distance,
             start_method=start_map.get(sm_val, StartMethod.AUTO),
@@ -485,6 +531,7 @@ async def simulate_race_session(db: AsyncSession, session_id):
             division_level=div_level,
             stretch_length=track_stretch,
             track_prestige=track_prestige,
+            stretch_class=stretch_class,
         )
         conditions.prize_pool = race.prize_pool
 
@@ -612,6 +659,31 @@ async def simulate_race_session(db: AsyncSession, session_id):
                             f"Efterlopp: {horse.name}",
                             evt_msg, game_week,
                         )
+
+                # Generate post-race observations (v2 horse diary)
+                hp = hidden_props_data.get(e.horse_id)
+                if hp:
+                    from app.services.hidden_properties_service import generate_observations
+                    obs_equipment = {
+                        "shoe": getattr(db_entry, 'shoe', 'normal_steel'),
+                        "sulky": getattr(db_entry, 'sulky_type', 'european') or 'european',
+                    }
+                    # Convert shoe enum to string if needed
+                    if hasattr(obs_equipment["shoe"], 'value'):
+                        obs_equipment["shoe"] = obs_equipment["shoe"].value
+                    obs_result_data = {
+                        "temperature": session.temperature,
+                        "track_prestige": track_prestige,
+                        "surface": s_val,
+                        "weather": w_val,
+                        "days_since_last_race": getattr(horse, 'days_since_last_race', 14) or 14,
+                        "races_last_30_days": getattr(horse, 'races_last_30_days', 1) or 1,
+                    }
+                    await generate_observations(
+                        db, db_entry.horse_id, db_entry.stable_id,
+                        hp, obs_equipment, obs_result_data,
+                        game_week, race_id=race.id,
+                    )
 
                 # Record prize money transaction (minus driver commission)
                 if f.prize_money > 0:

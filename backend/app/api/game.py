@@ -197,6 +197,13 @@ async def dev_run_migrations(db: AsyncSession = Depends(get_db)):
         "CREATE TABLE IF NOT EXISTS caretaker_scout_reports (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), caretaker_id UUID NOT NULL REFERENCES caretakers(id) ON DELETE CASCADE, horse_id UUID NOT NULL REFERENCES horses(id) ON DELETE CASCADE, stable_id UUID NOT NULL REFERENCES stables(id) ON DELETE CASCADE, compatibility_score INTEGER NOT NULL, compatibility_label VARCHAR(20) NOT NULL, primary_boost INTEGER NOT NULL DEFAULT 0, secondary_boost INTEGER NOT NULL DEFAULT 0, scouted_at TIMESTAMP NOT NULL DEFAULT NOW(), game_week INTEGER NOT NULL, UNIQUE(caretaker_id, horse_id))",
         "ALTER TABLE race_entries ADD COLUMN IF NOT EXISTS sulky_type VARCHAR(20) NOT NULL DEFAULT 'european'",
         "ALTER TABLE race_entries ADD COLUMN IF NOT EXISTS warmup_intensity VARCHAR(20) NOT NULL DEFAULT 'normal'",
+        # Hidden properties & observations (011)
+        "CREATE TABLE IF NOT EXISTS horse_hidden_properties (horse_id UUID PRIMARY KEY REFERENCES horses(id) ON DELETE CASCADE, barefoot_affinity INT DEFAULT 0, american_sulky_affinity INT DEFAULT 0, racing_sulky_affinity INT DEFAULT 0, tight_curve_ability INT DEFAULT 0, long_homestretch_affinity INT DEFAULT 0, heavy_track_affinity INT DEFAULT 0, confidence_sensitivity NUMERIC(3,2) DEFAULT 1.0, crowd_response INT DEFAULT 0, recovery_rate NUMERIC(3,2) DEFAULT 1.0, start_frequency_preference VARCHAR(20) DEFAULT 'normal', peak_age INT DEFAULT 6, late_bloomer BOOLEAN DEFAULT FALSE, natural_speed_ceiling INT DEFAULT 0, hidden_sprint_gear BOOLEAN DEFAULT FALSE, wind_sensitivity NUMERIC(3,2) DEFAULT 1.0, temperature_optimum INT DEFAULT 12, temperature_tolerance INT DEFAULT 15)",
+        "ALTER TABLE horses ADD COLUMN IF NOT EXISTS confidence INT DEFAULT 50",
+        "ALTER TABLE horses ADD COLUMN IF NOT EXISTS days_since_last_race INT DEFAULT 0",
+        "ALTER TABLE horses ADD COLUMN IF NOT EXISTS races_last_30_days INT DEFAULT 0",
+        "CREATE TABLE IF NOT EXISTS horse_observations (id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), horse_id UUID NOT NULL REFERENCES horses(id) ON DELETE CASCADE, stable_id UUID NOT NULL REFERENCES stables(id) ON DELETE CASCADE, game_week INT NOT NULL, observation_type VARCHAR(50) NOT NULL, text TEXT NOT NULL, confidence_level NUMERIC(3,2) DEFAULT 0.5, race_id UUID REFERENCES races(id) ON DELETE SET NULL, created_at TIMESTAMPTZ DEFAULT NOW())",
+        "CREATE INDEX IF NOT EXISTS idx_observations_horse ON horse_observations(horse_id)",
     ]
 
     applied = []
@@ -217,3 +224,22 @@ async def dev_seed_caretakers(db: AsyncSession = Depends(get_db)):
     from app.services import caretaker_service
     count = await caretaker_service.seed_npc_caretakers(db, count=25)
     return {"status": "ok", "seeded": count}
+
+
+@router.post("/dev/generate-hidden-properties")
+async def dev_generate_hidden_properties(db: AsyncSession = Depends(get_db)):
+    """DEV ONLY: Generate hidden properties for all horses that don't have them yet."""
+    from app.models.horse import Horse
+    from app.services.hidden_properties_service import ensure_hidden_properties
+
+    result = await db.execute(select(Horse))
+    horses = result.scalars().all()
+
+    generated = 0
+    for horse in horses:
+        props = await ensure_hidden_properties(db, horse.id)
+        if props:
+            generated += 1
+
+    await db.commit()
+    return {"status": "ok", "horses_processed": generated}

@@ -152,3 +152,15 @@ async def update_feed(
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
     return result
+
+
+@router.get("/{horse_id}/diary")
+async def horse_diary(
+    horse_id: UUID,
+    stable=Depends(get_current_stable),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get observation diary for a horse (v2 hidden properties discovery)."""
+    from app.services.hidden_properties_service import get_horse_diary
+    entries = await get_horse_diary(db, horse_id, stable.id, limit=30)
+    return {"diary": entries}

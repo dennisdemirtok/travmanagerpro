@@ -1,8 +1,18 @@
 """
-TravManager Race Engine
-=======================
+TravManager Race Engine v2
+==========================
 Deterministic, step-based harness racing simulation.
 Each step = 100 meters. Seeded RNG for replay/verification.
+
+v2 upgrades:
+- Rebalanced tempo modifiers (opening 40%, steeper offensive energy curve)
+- Rebalanced positioning (leader wind resistance, drafting, dynamic back sprint)
+- Gallop window system (concentrated checkpoints instead of per-step)
+- Confidence system (affects speed, gallop, sprint, start)
+- Start frequency effects (frequent/sparse/normal preferences)
+- Hidden property modifiers (barefoot/sulky affinity, track/weather, crowd, etc.)
+- Race incidents (hidden gear, instinct surge, driver tactical moves)
+- Enhanced driver skill (phase-specific, composure, compatibility synergy)
 """
 
 import hashlib
@@ -130,6 +140,47 @@ class HorseStats:
     # Home track advantage
     home_track_bonus: float = 0.0  # 0.0 to 0.05 (up to 5% bonus for familiar track)
 
+    # Hidden property modifiers (set by race_service before simulation)
+    hidden_barefoot_affinity: int = 0
+    hidden_sulky_american_affinity: int = 0
+    hidden_sulky_racing_affinity: int = 0
+    hidden_tight_curve: int = 0
+    hidden_long_homestretch: int = 0
+    hidden_heavy_track: int = 0
+    hidden_crowd_response: int = 0
+    hidden_wind_sensitivity: float = 1.0
+    hidden_temperature_optimum: int = 12
+    hidden_temperature_tolerance: int = 15
+    hidden_natural_speed_ceiling: int = 0
+    hidden_sprint_gear: bool = False
+
+    # Hidden properties (loaded from DB before race)
+    barefoot_affinity: int = 0
+    american_sulky_affinity: int = 0
+    racing_sulky_affinity: int = 0
+    tight_curve_ability: int = 0
+    long_homestretch_affinity: int = 0
+    heavy_track_affinity: int = 0
+    crowd_response: int = 0
+    wind_sensitivity: float = 1.0
+    temperature_optimum: int = 12
+    temperature_tolerance: int = 15
+    natural_speed_ceiling: int = 0
+    hidden_sprint_gear_v2: bool = False
+    confidence_sensitivity: float = 1.0
+    recovery_rate: float = 1.0
+    start_frequency_preference_v2: str = "normal"
+
+    # Confidence (0-100)
+    confidence: int = 50
+
+    # Start frequency tracking
+    days_since_last_race: int = 14
+    races_last_30_days: int = 1
+
+    # Start frequency (legacy)
+    start_frequency_preference: str = "normal"
+
 
 @dataclass
 class DriverStats:
@@ -172,6 +223,7 @@ class RaceConditions:
     division_level: int = 4
     stretch_length: int = 200  # meters — affects sprint timing strategy
     track_prestige: int = 50   # affects crowd_shy trait
+    stretch_class: str = "medium"  # "short", "medium", "long"
 
 
 @dataclass
@@ -201,7 +253,7 @@ class RaceEntry:
 class RaceEvent:
     step: int
     distance: int
-    event_type: str  # 'start', 'gallop_minor', 'gallop_major', 'gallop_dq', 'sprint', 'overtake', 'finish'
+    event_type: str  # 'start', 'gallop_minor', 'gallop_major', 'gallop_dq', 'sprint', 'overtake', 'finish', 'hidden_gear', 'instinct_surge', 'driver_tactical_move'
     horse_name: str
     horse_id: str
     text: str
@@ -389,6 +441,7 @@ class RaceEngine:
         self.events: list[RaceEvent] = []
         self.snapshots: list[StepSnapshot] = []
         self.sector_tracker: dict[str, list] = {}
+        self._gallop_windows: list[dict] = []
 
     def simulate(
         self,
@@ -409,6 +462,9 @@ class RaceEngine:
         # Pre-race: apply shoe effects, weight, weather, compatibility
         self._apply_pre_race_modifiers(entries, conditions)
 
+        # Define gallop windows for this race
+        self._gallop_windows = self._define_gallop_windows(conditions)
+
         # Pre-race: tactical interactions
         self._calculate_tactical_interactions(entries)
 
@@ -428,6 +484,16 @@ class RaceEngine:
         narrative_points.add(self.distance // 2)
         last_narrative_distance = 0
 
+        # Define gallop windows (v2 - replaces per-step check)
+        stretch_len = getattr(conditions, 'stretch_length', 200)
+        gallop_windows = [
+            {"name": "start", "start": 0, "end": 200, "risk_mult": 2.0 if conditions.start_method == StartMethod.VOLT else 1.2},
+            {"name": "first_curve", "start": (500 if self.distance >= 2640 else 400), "end": (650 if self.distance >= 2640 else 550), "risk_mult": 1.5},
+            {"name": "pace_change", "start": int(self.distance * 0.50), "end": int(self.distance * 0.55) + 200, "risk_mult": 1.3},
+            {"name": "last_curve", "start": self.distance - stretch_len - 250, "end": self.distance - stretch_len - 100, "risk_mult": 1.7},
+            {"name": "sprint_opening", "start": self.distance - stretch_len, "end": self.distance - stretch_len + 200, "risk_mult": 1.6},
+        ]
+
         # Steps 1..N
         for step in range(1, self.total_steps + 1):
             meters = step * self.STEP_DISTANCE
@@ -439,7 +505,7 @@ class RaceEngine:
 
                 target_speed = self._calc_target_speed(entry, remaining, entries)
                 actual_speed = self._apply_physics(entry, target_speed, step)
-                self._check_gallop(entry, actual_speed, remaining, step)
+                self._check_gallop_v2(entry, actual_speed, remaining, step, gallop_windows, meters)
 
                 if not entry.is_disqualified:
                     actual_speed = self._apply_driver_skill(entry, actual_speed, remaining)
@@ -448,6 +514,10 @@ class RaceEngine:
 
                 # Track sector times
                 self._track_sector(entry, meters)
+
+            # Race incidents (v2)
+            if meters % 200 == 0:  # Check every 200m
+                self._evaluate_race_events_v2(entries, step, meters, remaining)
 
             self.snapshots.append(self._take_snapshot(entries, meters))
 
@@ -733,6 +803,82 @@ class RaceEngine:
                 elif trait == "travel_sick":
                     pass  # Handled in travel_service
 
+            # === HIDDEN PROPERTY MODIFIERS (v2) ===
+            # Barefoot affinity
+            if entry.shoe == ShoeType.BAREFOOT:
+                bf = horse.barefoot_affinity
+                entry._shoe_speed_mod *= (1.0 + bf / 500)  # -6% to +6%
+                entry._shoe_gallop_mod *= (1.0 - bf / 300)
+
+            # Sulky affinity
+            sulky_type_v2 = entry.tactics.sulky if hasattr(entry.tactics, 'sulky') else "european"
+            if sulky_type_v2 == "american":
+                sa = horse.american_sulky_affinity
+                entry._shoe_speed_mod *= (1.0 + sa / 600)
+                entry._shoe_gallop_mod *= (1.0 - sa / 400)
+                if sa < -10:
+                    entry.energy_drain_modifier *= (1.0 + abs(sa) / 200)
+            elif sulky_type_v2 == "racing":
+                rs = horse.racing_sulky_affinity
+                entry._shoe_speed_mod *= (1.0 + rs / 500)
+                entry._shoe_gallop_mod *= (1.0 - rs / 250)
+
+            # Track preferences
+            if entry.tactics.curve_strategy == CurveStrategy.INNER:
+                entry._shoe_speed_mod *= (1.0 + horse.tight_curve_ability / 400)
+                entry._shoe_gallop_mod *= (1.0 - horse.tight_curve_ability / 300)
+
+            # Homestretch affinity
+            entry._homestretch_sprint_mod = 1.0
+            if cond.stretch_class == "long":
+                entry._homestretch_sprint_mod = 1.0 + horse.long_homestretch_affinity / 300
+            elif cond.stretch_class == "short":
+                entry._homestretch_sprint_mod = 1.0 - horse.long_homestretch_affinity / 400
+
+            # Heavy track affinity
+            if cond.weather in (Weather.RAIN, Weather.HEAVY_RAIN) or cond.surface == Surface.WINTER:
+                entry._weather_mod *= (1.0 + horse.heavy_track_affinity / 300)
+                entry.energy_drain_modifier *= (1.0 - horse.heavy_track_affinity / 400)
+
+            # Temperature hidden preference
+            temp_diff_v2 = abs(cond.temperature - horse.temperature_optimum)
+            temp_penalty_v2 = max(0, temp_diff_v2 - horse.temperature_tolerance)
+            entry._weather_mod *= (1.0 - temp_penalty_v2 * 0.008)
+
+            # Wind sensitivity
+            if cond.wind_speed > 3:
+                wind_effect = cond.wind_speed * 0.005 * horse.wind_sensitivity
+                entry.energy_drain_modifier *= (1.0 + wind_effect)
+
+            # Crowd response
+            if cond.track_prestige > 70:
+                entry._mood_mod *= (1.0 + horse.crowd_response / 500)
+
+            # Natural speed ceiling
+            if horse.natural_speed_ceiling != 0:
+                entry._shoe_speed_mod *= (1.0 + horse.natural_speed_ceiling / 200)
+
+            # === CONFIDENCE MODIFIERS (v2) ===
+            conf_v2 = horse.confidence
+            entry._confidence_speed_mod = 1.0 + ((conf_v2 - 50) / 100) * 0.14
+            entry._confidence_gallop_mod = 1.0 - ((conf_v2 - 50) / 100) * 0.40
+            entry._confidence_sprint_mod = 1.0 + ((conf_v2 - 50) / 100) * 0.25
+            entry._confidence_start_mod = 1.0 + ((conf_v2 - 50) / 100) * 0.20
+
+            # Apply confidence gallop mod
+            entry._shoe_gallop_mod *= entry._confidence_gallop_mod
+
+            # === START FREQUENCY EFFECT (v2) ===
+            entry._freq_energy_mod = 1.0
+            pref_v2 = horse.start_frequency_preference
+            if pref_v2 == "frequent" and horse.days_since_last_race > 21:
+                entry._form_mod *= 0.96  # Rusty
+            elif pref_v2 == "sparse" and horse.races_last_30_days >= 3:
+                entry._form_mod *= 0.94  # Overtaxed
+                entry._freq_energy_mod = 1.08
+            elif pref_v2 == "normal" and horse.races_last_30_days >= 4:
+                entry._form_mod *= 0.97
+
     def _calculate_tactical_interactions(self, entries: list[RaceEntry]):
         leaders = [e for e in entries if e.tactics.positioning == Positioning.LEAD]
         closers = [e for e in entries if e.tactics.positioning == Positioning.BACK]
@@ -762,14 +908,13 @@ class RaceEngine:
             warmup_fx = WARMUP_EFFECTS.get(warmup, WARMUP_EFFECTS["normal"])
             entry.energy *= warmup_fx["start_energy_mod"]
             warmup_start_mod = warmup_fx["start_ability_mod"]
-
             if cond.start_method == StartMethod.AUTO:
                 start_power = (
                     h.start_ability * warmup_start_mod * 0.55
                     + d.start_skill * 0.25
                     + self.rng.gauss(0, 5) * 0.15
                     + entry._compat_mod * 2
-                )
+                ) * getattr(entry, '_confidence_start_mod', 1.0)
                 entry.position_meters = (start_power / 100) * 15 - entry.handicap_meters
 
             else:  # VOLT
@@ -779,7 +924,7 @@ class RaceEngine:
                     + h.mentality * 0.20
                     + d.start_skill * 0.20
                     + self.rng.gauss(0, 4) * 0.15
-                )
+                ) * getattr(entry, '_confidence_start_mod', 1.0)
                 entry.position_meters = (start_power / 100) * 12 + volt_bonus - entry.handicap_meters
 
                 # Volt gallop risk
@@ -828,49 +973,72 @@ class RaceEngine:
         base *= entry._grip
         base *= getattr(entry, '_home_track_mod', 1.0)
         base *= getattr(entry, '_condition_mod', 1.0)
+        base *= getattr(entry, '_confidence_speed_mod', 1.0)
 
-        # Race phase
+        # Phase boundaries (changed: opening is 40%, not 30%)
         phase_pct = remaining / self.distance
-        if phase_pct > 0.70:
+        if phase_pct > 0.60:
             phase = "opening"
         elif phase_pct > 0.25:
             phase = "middle"
         else:
             phase = "sprint"
 
-        # Tempo modifier
-        tempo_mods = {
-            "opening":  {Tempo.OFFENSIVE: 1.08, Tempo.BALANCED: 1.00, Tempo.CAUTIOUS: 0.92},
-            "middle":   {Tempo.OFFENSIVE: 1.04, Tempo.BALANCED: 1.00, Tempo.CAUTIOUS: 0.97},
-            "sprint":   {Tempo.OFFENSIVE: 1.02, Tempo.BALANCED: 1.05, Tempo.CAUTIOUS: 1.10},
+        # Rebalanced tempo: offensive has steeper energy curve
+        tempo_speed = {
+            "opening":  {Tempo.OFFENSIVE: 1.06, Tempo.BALANCED: 1.00, Tempo.CAUTIOUS: 0.93},
+            "middle":   {Tempo.OFFENSIVE: 1.03, Tempo.BALANCED: 1.00, Tempo.CAUTIOUS: 0.97},
+            "sprint":   {Tempo.OFFENSIVE: 1.00, Tempo.BALANCED: 1.04, Tempo.CAUTIOUS: 1.10},
         }
-        target = base * tempo_mods[phase][entry.tactics.tempo]
+        tempo_energy = {
+            "opening":  {Tempo.OFFENSIVE: 1.35, Tempo.BALANCED: 1.00, Tempo.CAUTIOUS: 0.80},
+            "middle":   {Tempo.OFFENSIVE: 1.20, Tempo.BALANCED: 1.00, Tempo.CAUTIOUS: 0.88},
+            "sprint":   {Tempo.OFFENSIVE: 1.10, Tempo.BALANCED: 1.05, Tempo.CAUTIOUS: 1.15},
+        }
+        target = base * tempo_speed[phase][entry.tactics.tempo]
+        entry._tempo_energy_mod = tempo_energy[phase][entry.tactics.tempo]
 
-        # Positioning
+        # Positioning — rebalanced: leader costs more energy, back runners stronger sprint
         my_rank = self._get_rank(entry, all_entries)
         active = [e for e in all_entries if not e.is_disqualified]
         leader = max(active, key=lambda e: e.position_meters, default=None)
 
         if entry.tactics.positioning == Positioning.LEAD:
             if my_rank > 1:
-                target *= 1.06
+                target *= 1.05  # Nerfed from 1.06
             else:
-                target *= 1.01
+                target *= 1.005  # Nerfed from 1.01
+            entry.energy_drain_modifier = max(entry.energy_drain_modifier, 1.18)  # Leader always drains more
         elif entry.tactics.positioning == Positioning.SECOND:
             if leader and leader != entry:
                 target = min(target, leader.current_speed * 0.99)
+                entry.energy_drain_modifier *= 0.90  # Drafting bonus
         elif entry.tactics.positioning == Positioning.OUTSIDE:
             target *= 1.02
-            entry.energy_drain_modifier = max(entry.energy_drain_modifier, 1.12)
+            entry.energy_drain_modifier = max(entry.energy_drain_modifier, 1.15)
         elif entry.tactics.positioning == Positioning.TRAILING:
             if leader and leader != entry:
                 target = min(target, leader.current_speed * 1.01)
                 entry.energy_drain_modifier = max(entry.energy_drain_modifier, 1.15)
         elif entry.tactics.positioning == Positioning.BACK:
-            if phase != "sprint":
+            if phase == "opening":
                 target *= 0.94
+            elif phase == "middle":
+                target *= 0.96
             else:
-                target *= 1.12
+                # Dynamic sprint bonus based on leader energy
+                target *= 1.14  # Buffed from 1.12
+                # Check if leaders are tired for extra bonus
+                leader_energies = [e.energy for e in all_entries if not e.is_disqualified
+                                   and e.tactics.positioning in (Positioning.LEAD, Positioning.OUTSIDE)
+                                   and e is not entry]
+                if leader_energies:
+                    avg_leader_energy = sum(leader_energies) / len(leader_energies)
+                    if avg_leader_energy < 25:
+                        target *= 1.08  # Leaders dead = huge bonus
+                    elif avg_leader_energy < 40:
+                        target *= 1.04  # Leaders tired
+            entry.energy_drain_modifier *= 0.80  # Better energy savings
 
         # Sprint zone
         sprint_distances = {
@@ -887,7 +1055,7 @@ class RaceEngine:
                 sprint_power *= (1.0 + (stretch_factor - 1) * 0.4)
             elif entry.tactics.sprint_order == SprintOrder.LATE_250M:
                 sprint_power *= (1.0 + (1 - stretch_factor) * 0.3)
-            target *= (1.0 + sprint_power * 0.2) * entry.sprint_bonus * getattr(entry, '_trait_sprint_mod', 1.0)
+            target *= (1.0 + sprint_power * 0.2) * entry.sprint_bonus * getattr(entry, '_trait_sprint_mod', 1.0) * getattr(entry, '_confidence_sprint_mod', 1.0) * getattr(entry, '_homestretch_sprint_mod', 1.0)
 
             # Racing instinct in tight finishes
             if remaining < 200:
@@ -961,6 +1129,19 @@ class RaceEngine:
         # Drain modifier from tactical interactions
         energy_cost *= entry.energy_drain_modifier
 
+        # Tempo-based energy drain (v2 - steeper curve for offensive)
+        phase_pct = (self.distance - step * self.STEP_DISTANCE) / self.distance
+        if phase_pct > 0.60:
+            tempo_energy = {Tempo.OFFENSIVE: 1.35, Tempo.BALANCED: 1.0, Tempo.CAUTIOUS: 0.80}
+        elif phase_pct > 0.25:
+            tempo_energy = {Tempo.OFFENSIVE: 1.20, Tempo.BALANCED: 1.0, Tempo.CAUTIOUS: 0.88}
+        else:
+            tempo_energy = {Tempo.OFFENSIVE: 1.10, Tempo.BALANCED: 1.05, Tempo.CAUTIOUS: 1.15}
+        energy_cost *= tempo_energy.get(entry.tactics.tempo, 1.0)
+
+        # Start frequency energy penalty
+        energy_cost *= getattr(entry, '_freq_energy_mod', 1.0)
+
         # Sulky energy drain modifier
         sulky_e_mod = getattr(entry, 'sulky_energy_mod', 1.0)
         energy_cost *= sulky_e_mod
@@ -977,26 +1158,84 @@ class RaceEngine:
         return max(0, actual_speed)
 
     # ----------------------------------------------------------
+    # GALLOP WINDOWS
+    # ----------------------------------------------------------
+
+    def _define_gallop_windows(self, conditions: RaceConditions) -> list[dict]:
+        """Define gallop risk windows — concentrated checkpoints instead of per-step."""
+        windows = []
+        d = conditions.distance
+        stretch = conditions.stretch_length
+
+        # Window 1: Start (0-200m)
+        windows.append({
+            "name": "start", "start": 0, "end": 200,
+            "base_mult": 2.0 if conditions.start_method == StartMethod.VOLT else 1.2,
+        })
+        # Window 2: First curve (~400-550m)
+        curve1 = 500 if d >= 2640 else 400
+        windows.append({
+            "name": "first_curve", "start": curve1, "end": curve1 + 150,
+            "base_mult": 1.5,
+        })
+        # Window 3: Pace change (55% of distance)
+        mid = int(d * 0.55)
+        windows.append({
+            "name": "pace_change", "start": mid, "end": mid + 200,
+            "base_mult": 1.3,
+        })
+        # Window 4: Last curve
+        last_curve = d - stretch - 100
+        windows.append({
+            "name": "last_curve", "start": last_curve, "end": last_curve + 150,
+            "base_mult": 1.7,
+        })
+        # Window 5: Sprint opening
+        sprint_start = d - stretch
+        windows.append({
+            "name": "sprint_opening", "start": sprint_start, "end": sprint_start + 200,
+            "base_mult": 1.6,
+        })
+        return windows
+
+    # ----------------------------------------------------------
     # GALLOP CHECK
     # ----------------------------------------------------------
 
     def _check_gallop(self, entry: RaceEntry, speed: float, remaining: int, step: int):
+        """Check gallop risk — only triggers at defined windows."""
         if entry.is_disqualified:
             return
+
+        meters = step * self.STEP_DISTANCE
+
+        # Check if we're in a gallop window
+        in_window = False
+        window_mult = 1.0
+        window_name = ""
+        for w in self._gallop_windows:
+            if w["start"] <= meters <= w["end"]:
+                in_window = True
+                window_mult = w["base_mult"]
+                window_name = w["name"]
+                break
+
+        if not in_window:
+            return  # No gallop risk outside windows
 
         h = entry.horse
         d = entry.driver
 
-        base_risk = h.gallop_tendency / 100
+        base_risk = (h.gallop_tendency / 100) * window_mult
 
         # Speed pressure
         base_speed = (h.speed * 0.6 + h.endurance * 0.4) / 10
         speed_ratio = speed / base_speed if base_speed > 0 else 1.0
         if speed_ratio > 1.05:
-            base_risk *= (1 + (speed_ratio - 1.05) * 3)
+            base_risk *= (1 + (speed_ratio - 1.05) * 6)  # Steeper: was *3
 
         # Mentality
-        base_risk += (100 - h.mentality) / 100 * 0.02
+        base_risk *= (100 - h.mentality) / 100 * 0.3 + 0.85
 
         # Energy depletion
         if entry.energy < 15:
@@ -1004,38 +1243,127 @@ class RaceEngine:
         elif entry.energy < 30:
             base_risk *= 1.5
         elif entry.energy < 50:
-            base_risk *= 1.1
+            base_risk *= 1.2
 
-        # Balance stat reduces gallop risk
+        # Balance stat (buffed: -50% at max)
         base_risk *= (1.0 - h.balance / 200)
 
-        # Shoe effect
+        # Shoe + sulky effects
         base_risk *= entry._shoe_gallop_mod
-
-        # Compatibility effect
         base_risk *= entry._compat_gallop_mod
 
-        # Grip on surface
+        # Grip
         if entry._grip < 0.95:
             base_risk *= (1.0 + (1.0 - entry._grip) * 2)
 
-        # Driver safety setting
+        # Safety setting
         safety_mods = {
-            GallopSafety.SAFE: 0.6,
+            GallopSafety.SAFE: 0.55,  # Buffed: was 0.6
             GallopSafety.NORMAL: 1.0,
             GallopSafety.RISKY: 1.5,
         }
         base_risk *= safety_mods[entry.tactics.gallop_safety]
 
-        # Driver handling skill
-        base_risk *= (1.0 - d.gallop_handling / 100 * 0.4)
+        # Driver handling (buffed: max -67%, was -40%)
+        base_risk *= (1.0 - d.gallop_handling / 150)
 
-        # Previous gallops in this race increase risk
-        base_risk *= (1.0 + entry.gallop_count * 0.3)
+        # Previous gallops (steeper: +40%, was +30%)
+        base_risk *= (1.0 + entry.gallop_count * 0.4)
 
-        # Random check per step
-        if self.rng.random() < base_risk * 0.06:
-            self._trigger_gallop(entry, step, f"{self.distance - remaining}m")
+        # Confidence
+        base_risk *= (1.0 - (h.confidence - 50) / 250)
+
+        # Window-specific modifiers
+        if window_name == "start":
+            if "nervous_starter" in (h.special_traits or []):
+                base_risk *= 1.4
+        if window_name in ("first_curve", "last_curve"):
+            sulky_stab = getattr(entry, 'sulky_stability', 1.0)
+            if sulky_stab < 1.0:
+                base_risk *= (2.0 - sulky_stab)
+            # Hidden tight curve ability
+            base_risk *= (1.0 - h.hidden_tight_curve / 150)
+
+        # Check!
+        if self.rng.random() < base_risk * 0.08:  # Slightly higher per-window chance
+            self._trigger_gallop(entry, step, f"{meters}m ({window_name})")
+
+    def _check_gallop_v2(self, entry: RaceEntry, speed: float, remaining: int, step: int, windows: list, meters: int):
+        """v2 gallop check: only fires in defined gallop windows."""
+        if entry.is_disqualified:
+            return
+
+        # Check if we're in any gallop window
+        in_window = None
+        for w in windows:
+            if w["start"] <= meters <= w["end"]:
+                in_window = w
+                break
+
+        if not in_window:
+            return  # No gallop check outside windows
+
+        h = entry.horse
+        d = entry.driver
+
+        base_risk = (h.gallop_tendency / 100) * in_window["risk_mult"]
+
+        # Speed pressure
+        base_speed = (h.speed * 0.6 + h.endurance * 0.4) / 10
+        speed_ratio = speed / base_speed if base_speed > 0 else 1.0
+        if speed_ratio > 1.05:
+            base_risk *= (1 + (speed_ratio - 1.05) * 6)
+
+        # Mentality
+        base_risk *= (100 - h.mentality) / 100 * 0.3 + 0.85
+
+        # Energy
+        if entry.energy < 15:
+            base_risk *= 2.5
+        elif entry.energy < 30:
+            base_risk *= 1.5
+        elif entry.energy < 50:
+            base_risk *= 1.2
+
+        # Balance
+        base_risk *= (1.0 - h.balance / 200)
+
+        # Equipment
+        base_risk *= entry._shoe_gallop_mod
+        base_risk *= entry._compat_gallop_mod
+        base_risk *= getattr(entry, '_confidence_gallop_mod', 1.0)
+
+        # Grip
+        if entry._grip < 0.95:
+            base_risk *= (1.0 + (1.0 - entry._grip) * 2)
+
+        # Safety setting
+        safety_mods = {GallopSafety.SAFE: 0.55, GallopSafety.NORMAL: 1.0, GallopSafety.RISKY: 1.5}
+        base_risk *= safety_mods[entry.tactics.gallop_safety]
+
+        # Driver handling (buffed)
+        base_risk *= (1.0 - d.gallop_handling / 150)  # Max -67%
+
+        # Previous gallops (steeper)
+        base_risk *= (1.4 ** entry.gallop_count)
+
+        # Tight curve ability for curve windows
+        if in_window["name"] in ("first_curve", "last_curve"):
+            base_risk *= (1.0 - h.tight_curve_ability / 150)
+            # Sulky stability in curves
+            sulky_stab = getattr(entry, 'sulky_stability', 1.0)
+            if sulky_stab < 1.0:
+                base_risk *= (2.0 - sulky_stab)
+
+        # Nervous starter in start window
+        if in_window["name"] == "start":
+            traits = getattr(h, 'special_traits', None) or []
+            if "nervous_starter" in traits:
+                base_risk *= 1.4
+
+        # Check
+        if self.rng.random() < base_risk * 0.15:  # Higher per-window chance since fewer checks
+            self._trigger_gallop(entry, step, f"{meters}m ({in_window['name']})")
 
     def _trigger_gallop(self, entry: RaceEntry, step: int, location: str):
         d = entry.driver
@@ -1085,29 +1413,166 @@ class RaceEngine:
             ))
 
     # ----------------------------------------------------------
+    # RACE INCIDENTS
+    # ----------------------------------------------------------
+
+    def _evaluate_race_events(self, entries: list[RaceEntry], step: int, remaining: int):
+        """Evaluate dynamic race events: blocked stretch, driver moves, hidden gear, instinct surge."""
+        meters = step * self.STEP_DISTANCE
+        phase_pct = remaining / self.distance
+
+        active = [e for e in entries if not e.is_disqualified]
+        if not active:
+            return
+
+        ranked = sorted(active, key=lambda e: e.position_meters, reverse=True)
+
+        for entry in active:
+            h = entry.horse
+            d = entry.driver
+
+            # === HIDDEN SPRINT GEAR ===
+            if (h.hidden_sprint_gear
+                and remaining < 300
+                and entry.energy > 15
+                and not getattr(entry, '_gear_activated', False)):
+                if self.rng.random() < 0.30:
+                    entry._gear_activated = True
+                    entry.sprint_bonus *= 1.15
+                    entry.energy_drain_modifier *= 2.0
+                    self.events.append(RaceEvent(
+                        step=step, distance=meters,
+                        event_type="hidden_gear",
+                        horse_name=h.name, horse_id=h.id,
+                        text=f"{h.name} hittar en EXTRA VÄXEL — otrolig acceleration!",
+                        data={"type": "hidden_gear"}
+                    ))
+
+            # === RACING INSTINCT SURGE (buffed) ===
+            if remaining < 300 and remaining > 50:
+                rank = self._get_rank(entry, active)
+                if rank > 1:
+                    leader = ranked[0]
+                    gap = leader.position_meters - entry.position_meters
+                    if 5 < gap < 25 and h.racing_instinct > 60:
+                        instinct_power = (h.racing_instinct / 100) * (entry.energy / 100) * 0.12
+                        entry.current_speed *= (1.0 + instinct_power)
+                        entry.energy -= 2  # Burns energy fast
+                        if gap > 15:
+                            text = f"{h.name} SÄTTER IN EN RYCK! Kan det räcka?!"
+                        else:
+                            text = f"{h.name} närmar sig — det blir en TIGHT FINISH!"
+                        # Only log once per 300m
+                        if not getattr(entry, '_instinct_logged', False):
+                            entry._instinct_logged = True
+                            self.events.append(RaceEvent(
+                                step=step, distance=meters,
+                                event_type="instinct_surge",
+                                horse_name=h.name, horse_id=h.id,
+                                text=text,
+                                data={"gap": round(gap, 1), "power": round(instinct_power, 3)}
+                            ))
+
+            # === DRIVER TACTICAL MOVE (mid-race) ===
+            if 0.35 < phase_pct < 0.55 and self.rng.random() < 0.02:
+                # Driver sees no leader -> moves to front
+                leaders_count = sum(1 for e in active if e.tactics.positioning == Positioning.LEAD)
+                if (leaders_count == 0
+                    and d.tactical_ability > 60
+                    and entry.tactics.positioning != Positioning.LEAD
+                    and not getattr(entry, '_driver_moved', False)):
+                    entry._driver_moved = True
+                    entry.current_speed *= 1.06
+                    entry.energy -= 8
+                    self.events.append(RaceEvent(
+                        step=step, distance=meters,
+                        event_type="driver_tactical_move",
+                        horse_name=h.name, horse_id=h.id,
+                        text=f"{d.name} ser att ingen vill leda — kör upp {h.name} i front!",
+                        data={"type": "take_lead"}
+                    ))
+
+    def _evaluate_race_events_v2(self, entries: list[RaceEntry], step: int, meters: int, remaining: int):
+        """v2 race incidents: blocked, driver moves, hidden gear, instinct surge."""
+        active = [e for e in entries if not e.is_disqualified]
+        if len(active) < 2:
+            return
+
+        ranked = sorted(active, key=lambda e: e.position_meters, reverse=True)
+
+        for entry in active:
+            h = entry.horse
+
+            # Hidden sprint gear (10% of horses, triggers 30% of the time in last 300m)
+            if h.hidden_sprint_gear and remaining < 300 and remaining > 100 and entry.energy > 15:
+                if self.rng.random() < 0.30 and not getattr(entry, '_gear_triggered', False):
+                    entry._gear_triggered = True
+                    entry.sprint_bonus *= 1.15
+                    entry.energy_drain_modifier *= 1.5
+                    self.events.append(RaceEvent(
+                        step=step, distance=meters, event_type="hidden_gear",
+                        horse_name=h.name, horse_id=h.id,
+                        text=f"{h.name} hittar en extra v\u00e4xel \u2014 OTROLIG acceleration!",
+                        data={"sprint_boost": 1.15}
+                    ))
+
+            # Racing instinct comeback (buffed) - last 300m, 5-25m behind leader
+            if remaining < 300 and remaining > 50 and h.racing_instinct > 60:
+                leader = ranked[0] if ranked else None
+                if leader and leader is not entry:
+                    gap = leader.position_meters - entry.position_meters
+                    if 5 < gap < 25:
+                        instinct_power = (h.racing_instinct / 100) * (entry.energy / 100) * 0.12
+                        entry.current_speed *= (1.0 + instinct_power)
+                        entry.energy -= 2  # Burns energy fast
+                        if not getattr(entry, '_instinct_event_fired', False):
+                            entry._instinct_event_fired = True
+                            text = f"{h.name} S\u00c4TTER IN EN RYCK!" if gap > 15 else f"{h.name} n\u00e4rmar sig \u2014 det blir en TIGHT FINISH!"
+                            self.events.append(RaceEvent(
+                                step=step, distance=meters, event_type="instinct_surge",
+                                horse_name=h.name, horse_id=h.id,
+                                text=text, data={"instinct_power": round(instinct_power, 3)}
+                            ))
+
+    # ----------------------------------------------------------
     # DRIVER SKILL
     # ----------------------------------------------------------
 
     def _apply_driver_skill(self, entry: RaceEntry, speed: float, remaining: int) -> float:
         d = entry.driver
 
-        # General skill bonus (0-5%)
-        bonus = 1.0 + (d.skill / 100) * 0.05
+        # General skill bonus (0-8%, buffed from 0-5%)
+        bonus = 1.0 + (d.skill / 100) * 0.08
 
-        # Tactical bonus in middle phase
-        if remaining > 300 and remaining < self.distance * 0.7:
-            bonus *= 1.0 + (d.tactical_ability / 100) * 0.02
+        # Tactical bonus in middle phase (0-4%, buffed from 0-2%)
+        if remaining > 300 and remaining < self.distance * 0.6:
+            bonus *= 1.0 + (d.tactical_ability / 100) * 0.04
 
-        # Sprint timing bonus
+        # Sprint timing bonus (0-7%, buffed from 0-4%)
         if remaining <= 400:
-            bonus *= 1.0 + (d.sprint_timing / 100) * 0.04
+            bonus *= 1.0 + (d.sprint_timing / 100) * 0.07
+            # Long homestretch extra bonus
+            if self.conditions.stretch_length > 300:
+                bonus *= 1.0 + (d.sprint_timing / 100) * 0.03
 
-        # Composure under pressure (tight race)
+        # Composure under pressure (0-5%, buffed from 0-2%)
         active = [e for e in self.entries if not e.is_disqualified]
-        if len(active) > 1 and remaining < 300:
+        if len(active) > 1 and remaining < 200:
             closest = self._closest_competitor_distance(entry, active)
             if closest < 3:
-                bonus *= 1.0 + (d.composure / 100) * 0.02
+                bonus *= 1.0 + (d.composure / 100) * 0.05
+
+        # Nerve control for nervous/low-confidence horses
+        h = entry.horse
+        if h.mentality < 40 or h.confidence < 30:
+            bonus *= 1.0 + (d.composure / 100) * 0.04
+
+        # Compatibility synergy
+        compat = entry.compatibility_score
+        if compat > 80:
+            bonus *= 1.05
+        elif compat < 30:
+            bonus *= 0.90
 
         return speed * bonus
 
@@ -1507,7 +1972,7 @@ if __name__ == "__main__":
     print(f"{'='*60}\n")
 
     for f in result.finishers:
-        marker = "🏆 " if f.finish_position == 1 else "   "
+        marker = ">> " if f.finish_position == 1 else "   "
         npc = " (AI)" if any(e.horse.id == f.horse_id and e.horse.is_npc for e in field) else ""
         print(f"{marker}{f.finish_position}. {f.horse_name:<20}{npc:<6} {f.km_time_display:>8}  "
               f"Energi: {f.energy_at_finish:>3}%  Galopp: {f.gallop_incidents}  "

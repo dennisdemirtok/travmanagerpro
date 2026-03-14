@@ -161,6 +161,7 @@ def _horse_to_dict(h: Horse) -> dict:
         "form_history": form_hist[-10:],  # Last 10 for sparklines
         "injury_type": h.injury_type,
         "injury_recovery_weeks": h.injury_recovery_weeks or 0,
+        "confidence": getattr(h, 'confidence', 50) or 50,
     }
 
 
@@ -183,6 +184,10 @@ def _horse_to_engine_stats(h: Horse) -> HorseStats:
         personality_secondary=h.personality_secondary.value,
         special_traits=h.special_traits if hasattr(h, 'special_traits') and h.special_traits else [],
         is_npc=h.is_npc,
+        # v2: Confidence & frequency tracking
+        confidence=getattr(h, 'confidence', 50) or 50,
+        days_since_last_race=getattr(h, 'days_since_last_race', 14) or 14,
+        races_last_30_days=getattr(h, 'races_last_30_days', 1) or 1,
     )
 
 

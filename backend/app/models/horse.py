@@ -64,6 +64,7 @@ class Horse(Base):
     form: Mapped[int] = mapped_column(Integer, default=50)
     fatigue: Mapped[int] = mapped_column(Integer, default=0)
     mood: Mapped[int] = mapped_column(Integer, default=70)
+    confidence: Mapped[int] = mapped_column(Integer, default=50, server_default="50")
 
     # Hidden/genetic traits
     gallop_tendency: Mapped[int] = mapped_column(Integer, default=15)
@@ -73,6 +74,8 @@ class Horse(Base):
     distance_optimum: Mapped[int] = mapped_column(Integer, default=2140)
     maturation_speed: Mapped[int] = mapped_column(Integer, default=50)
     racing_instinct: Mapped[int] = mapped_column(Integer, default=50)
+    days_since_last_race: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    races_last_30_days: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     transport_tolerance: Mapped[int] = mapped_column(Integer, default=70)
 
     # Personality

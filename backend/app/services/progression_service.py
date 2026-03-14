@@ -132,6 +132,10 @@ async def apply_recovery(db: AsyncSession, game_days_elapsed: int = 1):
             elif horse.mood > 70:
                 horse.mood = max(70, horse.mood - 1)
 
+        # Track days since last race (v2 start frequency)
+        if hasattr(horse, 'days_since_last_race'):
+            horse.days_since_last_race = (horse.days_since_last_race or 0) + days
+
     await db.flush()
 
 
@@ -147,6 +151,11 @@ async def apply_weekly_form_changes(db: AsyncSession, game_week: int):
     form_changes = 0
 
     for horse in horses:
+        # Decay races_last_30_days weekly (~1 race expires every ~4 weeks)
+        if hasattr(horse, 'races_last_30_days') and (horse.races_last_30_days or 0) > 0:
+            if rng.random() < 0.25:  # ~25% chance per week to decrement
+                horse.races_last_30_days = max(0, (horse.races_last_30_days or 0) - 1)
+
         # Base dip chance
         dip_chance = 0.15
 
@@ -347,7 +356,14 @@ async def apply_post_race_effects(
     elif p == PersonalityType.WINNER and finish_position == 1:
         form_change += rng.randint(2, 4)  # Thrives on winning
     elif p == PersonalityType.MOODY:
-        form_change += rng.randint(-4, 4)  # Unpredictable
+        form_change += rng.randint(-5, 5)  # Extra volatility (buffed from ±4)
+
+    # Confidence-form coupling
+    confidence = getattr(horse, 'confidence', 50)
+    if form_change > 0 and confidence > 70:
+        form_change = int(form_change * 1.3)  # High confidence = form bounces up faster
+    elif form_change < 0 and confidence < 30:
+        form_change = int(form_change * 1.4)  # Low confidence = negative form spiral
 
     old_form = horse.form
     horse.form = max(0, min(100, horse.form + form_change))
@@ -397,9 +413,44 @@ async def apply_post_race_effects(
         events.append("Skorna börjar bli utslitna — överväg omskoning")
 
     # ============================================================
-    # 7. STAT GROWTH (kept from original)
+    # 7. CONFIDENCE UPDATE (v2)
+    # ============================================================
+    confidence_delta = _calculate_confidence_change(
+        horse, finish_position, field_size, rd, rng
+    )
+    old_confidence = getattr(horse, 'confidence', 50)
+    if hasattr(horse, 'confidence'):
+        horse.confidence = max(0, min(100, old_confidence + confidence_delta))
+        if confidence_delta > 5:
+            events.append(f"Självförtroendet steg kraftigt (+{confidence_delta})")
+        elif confidence_delta < -5:
+            events.append(f"Självförtroendet sjönk ({confidence_delta})")
+
+    # ============================================================
+    # 8. UPDATE START FREQUENCY TRACKING
+    # ============================================================
+    if hasattr(horse, 'days_since_last_race'):
+        horse.days_since_last_race = 0  # Just raced
+    if hasattr(horse, 'races_last_30_days'):
+        horse.races_last_30_days = min(10, (horse.races_last_30_days or 0) + 1)
+
+    # ============================================================
+    # 9. STAT GROWTH
     # ============================================================
     _apply_stat_growth(horse, finish_position, field_size, age_years, rng)
+
+    # ============================================================
+    # 10. RANDOM FORM VOLATILITY (v2 — 10% chance of unexplained spike)
+    # ============================================================
+    if rng.random() < 0.10:
+        spike = rng.randint(-10, 10)
+        horse.form = max(0, min(100, horse.form + spike))
+        _record_form(horse)
+        if abs(spike) > 6:
+            if spike > 0:
+                events.append("Hästen verkar ha hittat ny energi — formkurvan pekar uppåt utan tydlig förklaring.")
+            else:
+                events.append("Något verkar ha hänt — hästen tappar form trots rimligt resultat.")
 
     await db.flush()
 
@@ -408,6 +459,8 @@ async def apply_post_race_effects(
         "energy_lost": energy_lost,
         "form_change": horse.form - old_form,
         "new_form": horse.form,
+        "confidence_change": confidence_delta,
+        "new_confidence": getattr(horse, 'confidence', 50),
         "events": events,
         "injury": injury_result if injury_result else None,
     }
@@ -520,6 +573,62 @@ def _check_post_race_injury(horse: Horse, race_data: dict, rng: random.Random) -
         return f"Känning: {niggle} — hästen behöver extra omsorg"
 
     return None
+
+
+def _calculate_confidence_change(
+    horse: Horse, finish_position: int, field_size: int,
+    race_data: dict, rng: random.Random,
+) -> int:
+    """Calculate confidence change after a race.
+    Confidence 50 = neutral, 100 = peak, 0 = broken.
+    Winning builds confidence, losing erodes it — especially vs expectations.
+    """
+    delta = 0
+    was_dq = race_data.get("was_disqualified", False)
+    gallop_incidents = race_data.get("gallop_incidents", 0)
+    energy_at_finish = race_data.get("energy_at_finish", 50)
+
+    # Position-based
+    position_pct = finish_position / max(1, field_size)
+
+    if finish_position == 1:
+        delta += rng.randint(4, 12)
+    elif finish_position <= 3:
+        delta += rng.randint(1, 6)
+    elif position_pct > 0.75:
+        delta -= rng.randint(3, 10)
+    else:
+        delta += rng.randint(-2, 3)
+
+    # DQ is devastating
+    if was_dq:
+        delta -= rng.randint(8, 18)
+
+    # Multiple gallops hurt confidence
+    if gallop_incidents >= 2:
+        delta -= rng.randint(4, 10)
+    elif gallop_incidents == 1:
+        delta -= rng.randint(1, 4)
+
+    # Gutsy performance boosts confidence
+    if energy_at_finish < 10 and finish_position <= 3:
+        delta += rng.randint(2, 6)
+
+    # Apply confidence sensitivity (hidden property)
+    # We can't access hidden properties directly here, but the default sensitivity is 1.0
+    # This will be enhanced when hidden properties are loaded
+
+    # Random drift (unexplained confidence changes)
+    delta += rng.randint(-3, 3)
+
+    # Confidence spiral: high confidence amplifies positive, low amplifies negative
+    confidence = getattr(horse, 'confidence', 50)
+    if delta > 0 and confidence > 70:
+        delta = int(delta * 1.3)  # +30% positive when already confident
+    elif delta < 0 and confidence < 30:
+        delta = int(delta * 1.4)  # +40% negative when already low (spiral!)
+
+    return delta
 
 
 def _apply_stat_growth(horse: Horse, finish_position: int, field_size: int, age_years: int, rng: random.Random):
