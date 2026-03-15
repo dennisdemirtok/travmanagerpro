@@ -1772,33 +1772,41 @@ class NPCGenerator:
         return prefix + suffix
 
     def generate_horse(self, division_level: int, role: str = "STEADY") -> HorseStats:
-        base_power = 35 + (division_level * 8)
-        nerf = self.rng.uniform(0.85, 0.95)
+        base_power = 40 + (division_level * 9)
+        # Some NPCs are competitive, some weaker — realistic spread
+        variance = self.rng.uniform(0.93, 1.05)
 
         stats = {
-            "speed": int(clamp(base_power * nerf + self.rng.gauss(0, 8), 20, 95)),
-            "endurance": int(clamp(base_power * nerf + self.rng.gauss(0, 8), 20, 95)),
-            "mentality": int(clamp(base_power * nerf + self.rng.gauss(0, 10), 20, 95)),
-            "start_ability": int(clamp(base_power * nerf + self.rng.gauss(0, 8), 20, 95)),
-            "sprint_strength": int(clamp(base_power * nerf + self.rng.gauss(0, 8), 20, 95)),
-            "balance": int(clamp(base_power * nerf + self.rng.gauss(0, 7), 20, 95)),
-            "strength": int(clamp(base_power * nerf + self.rng.gauss(0, 7), 20, 95)),
+            "speed": int(clamp(base_power * variance + self.rng.gauss(0, 6), 25, 95)),
+            "endurance": int(clamp(base_power * variance + self.rng.gauss(0, 6), 25, 95)),
+            "mentality": int(clamp(base_power * variance + self.rng.gauss(0, 8), 25, 95)),
+            "start_ability": int(clamp(base_power * variance + self.rng.gauss(0, 6), 25, 95)),
+            "sprint_strength": int(clamp(base_power * variance + self.rng.gauss(0, 6), 25, 95)),
+            "balance": int(clamp(base_power * variance + self.rng.gauss(0, 5), 25, 95)),
+            "strength": int(clamp(base_power * variance + self.rng.gauss(0, 5), 25, 95)),
         }
 
         gallop = int(clamp(15 + self.rng.gauss(0, 5), 5, 35))
 
         if role == "PACEMAKER":
             stats["speed"] += 10
-            stats["endurance"] -= 15
+            stats["endurance"] -= 10
         elif role == "CLOSER":
-            stats["speed"] -= 8
+            stats["speed"] -= 5
             stats["sprint_strength"] += 12
         elif role == "WILDCARD":
             gallop = self.rng.randint(20, 40)
-            stats["speed"] += self.rng.randint(-5, 15)
+            stats["speed"] += self.rng.randint(-3, 12)
         # STEADY = no modifications
 
         personality_opts = ["calm", "hot", "stubborn", "responsive", "brave", "sensitive"]
+
+        # NPC horses need realistic condition/form/mood — not just defaults
+        npc_form = int(clamp(45 + self.rng.gauss(0, 12), 20, 80))
+        npc_condition = int(clamp(82 + self.rng.gauss(0, 8), 60, 98))
+        npc_mood = int(clamp(65 + self.rng.gauss(0, 10), 40, 90))
+        npc_confidence = int(clamp(50 + self.rng.gauss(0, 15), 20, 80))
+        npc_racing_instinct = int(clamp(45 + self.rng.gauss(0, 12), 20, 80))
 
         return HorseStats(
             id=f"npc_{self.rng.randint(100000, 999999)}",
@@ -1807,22 +1815,27 @@ class NPCGenerator:
             gallop_tendency=gallop,
             personality_primary=self.rng.choice(personality_opts),
             personality_secondary=self.rng.choice(personality_opts),
+            form=npc_form,
+            condition=npc_condition,
+            mood=npc_mood,
+            confidence=npc_confidence,
+            racing_instinct=npc_racing_instinct,
             **stats,
         )
 
     def generate_driver(self, division_level: int) -> DriverStats:
-        base = 30 + division_level * 7
+        base = 35 + division_level * 8
         return DriverStats(
             id=f"npc_driver_{self.rng.randint(1000, 9999)}",
             name="Systemkusk",
             is_npc=True,
-            skill=int(base + self.rng.gauss(0, 5)),
-            start_skill=int(base + self.rng.gauss(0, 5)),
-            tactical_ability=int(base + self.rng.gauss(0, 5)),
-            sprint_timing=int(base + self.rng.gauss(0, 5)),
-            gallop_handling=int(base + self.rng.gauss(0, 5)),
-            experience=int(base * 0.8),
-            composure=int(base + self.rng.gauss(0, 5)),
+            skill=int(clamp(base + self.rng.gauss(0, 6), 25, 95)),
+            start_skill=int(clamp(base + self.rng.gauss(0, 6), 25, 95)),
+            tactical_ability=int(clamp(base + self.rng.gauss(0, 6), 25, 95)),
+            sprint_timing=int(clamp(base + self.rng.gauss(0, 6), 25, 95)),
+            gallop_handling=int(clamp(base + self.rng.gauss(0, 6), 25, 95)),
+            experience=int(clamp(base * 0.85 + self.rng.gauss(0, 5), 20, 90)),
+            composure=int(clamp(base + self.rng.gauss(0, 6), 25, 95)),
             driving_style=self.rng.choice(["patient", "offensive", "tactical"]),
         )
 
@@ -1852,19 +1865,19 @@ class NPCGenerator:
                 weights=[3, 3, 3, 1],
             )[0])
 
-        npc_driver = self.generate_driver(division_level)
-
         for role in roles:
             horse = self.generate_horse(division_level, role)
+            driver = self.generate_driver(division_level)
             tactics = self._npc_tactics(horse, role)
             shoe = self.rng.choice([ShoeType.NORMAL_STEEL, ShoeType.LIGHT_ALUMINUM])
+            compat = int(clamp(50 + self.rng.gauss(0, 15), 25, 90))
 
             field.append(RaceEntry(
                 horse=horse,
-                driver=npc_driver,
+                driver=driver,
                 tactics=tactics,
                 shoe=shoe,
-                compatibility_score=50,
+                compatibility_score=compat,
             ))
 
         # Assign post positions
