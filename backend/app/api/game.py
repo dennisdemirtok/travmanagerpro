@@ -53,7 +53,7 @@ async def dev_simulate_next(db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Inga osimulerade sessioner hittades")
 
     # Run the full simulation pipeline
-    await race_service.simulate_race_session(db, session)
+    await race_service.simulate_race_session(db, session.id)
     await db.commit()
 
     return {
