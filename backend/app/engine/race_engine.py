@@ -1772,7 +1772,8 @@ class NPCGenerator:
         return prefix + suffix
 
     def generate_horse(self, division_level: int, role: str = "STEADY") -> HorseStats:
-        base_power = 42 + (division_level * 10)
+        # Division 1 = elite (highest stats), Division 6 = beginner (lowest)
+        base_power = 90 - (division_level * 8)  # div1=82, div3=66, div6=42
         # Some NPCs are competitive, some weaker — realistic spread
         variance = self.rng.uniform(0.94, 1.06)
 
@@ -1824,7 +1825,7 @@ class NPCGenerator:
         )
 
     def generate_driver(self, division_level: int) -> DriverStats:
-        base = 35 + division_level * 8
+        base = 85 - division_level * 7  # div1=78, div3=64, div6=43
         return DriverStats(
             id=f"npc_driver_{self.rng.randint(1000, 9999)}",
             name="Systemkusk",
