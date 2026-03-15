@@ -1772,9 +1772,9 @@ class NPCGenerator:
         return prefix + suffix
 
     def generate_horse(self, division_level: int, role: str = "STEADY") -> HorseStats:
-        base_power = 40 + (division_level * 9)
+        base_power = 42 + (division_level * 10)
         # Some NPCs are competitive, some weaker — realistic spread
-        variance = self.rng.uniform(0.93, 1.05)
+        variance = self.rng.uniform(0.94, 1.06)
 
         stats = {
             "speed": int(clamp(base_power * variance + self.rng.gauss(0, 6), 25, 95)),
