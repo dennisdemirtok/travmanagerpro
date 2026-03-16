@@ -1743,19 +1743,35 @@ class RaceEngine:
 # NPC HORSE GENERATOR
 # ============================================================
 
-HORSE_NAME_PREFIXES = [
-    "Storm", "Guld", "Silver", "Blixt", "Natt", "Sol", "Vinter", "Järn",
-    "Kung", "Dröm", "Stjärn", "Eld", "Is", "Nord", "Snabb", "Stark",
-    "Mörk", "Ljus", "Vind", "Åsk", "Kraft", "Ädel", "Fri", "Blå",
-    "Röd", "Svart", "Vit", "Höst", "Vår", "Sommar", "Polar", "Berg",
-]
-
-HORSE_NAME_SUFFIXES = [
-    "pilen", "svansen", "faxen", "stegen", "prinsen", "dansen",
-    "blansen", "kransen", "anden", "lansen", "bollen", "draken",
-    "falken", "jansen", "ansen", "mannen", "stenen", "glansen",
-    "tansen", "ransen", "vikingen", "baronen", "hjälten", "kungen",
-]
+HORSE_NAME_PARTS = {
+    "prefixes": [
+        'Global', 'Royal', 'Power', 'Magic', 'Super', 'Lucky', 'Fast',
+        'Noble', 'Storm', 'Flash', 'Dream', 'Star', 'Iron', 'Gold',
+        'Silver', 'Quick', 'Brave', 'Cool', 'Sweet', 'Dark', 'Bright',
+        'Flying', 'Racing', 'Grand', 'Epic', 'Mighty', 'Silent',
+    ],
+    "suffixes": [
+        'Bansen', 'Am', 'Ansen', 'Express', 'Rocket', 'Racer', 'Fighter',
+        'Winner', 'Prince', 'Princess', 'King', 'Queen', 'Star',
+        'Dream', 'Hope', 'Glory', 'Pride', 'Shadow',
+    ],
+    "swedish_first": [
+        'Mörk', 'Ljus', 'Snabb', 'Stark', 'Varm', 'Kall', 'Vild',
+        'Lugn', 'Hård', 'Mjuk', 'Stor', 'Liten',
+    ],
+    "swedish_second": [
+        'blansen', 'liansen', 'diamanten', 'prinsen', 'prinsessan',
+        'stenen', 'vinden', 'skuggan', 'drömmen', 'hoppet',
+        'stjärnan', 'pilen', 'blixten', 'stormen', 'solen',
+    ],
+    "standalone": [
+        'Propulsion', 'Diamanten', 'Leansen', 'Elitlansen', 'Dakar',
+        'Xander', 'Olympia', 'Zenith', 'Kronos', 'Calypso', 'Tornado',
+        'Eclipse', 'Phantom', 'Maverick', 'Allegro', 'Fortissimo',
+        'Presto', 'Vivace', 'Andante', 'Donatello', 'Leonardo',
+        'Nansen', 'Amundsen', 'Stenmark', 'Borg', 'Fansen', 'Doansen',
+    ],
+}
 
 NPC_STABLE_NAMES = [
     "Datatraven", "Systemstallet", "AI Trav AB", "Digitalt Stall",
@@ -1765,81 +1781,224 @@ NPC_STABLE_NAMES = [
 
 
 class NPCGenerator:
+    """Generates NPC horses matched to player horse ratings for realistic fields."""
+
+    PROFILES = [
+        {"name": "sprinter",  "speed": 0.40, "endurance": 0.20, "sprint": 0.40},
+        {"name": "stayer",    "speed": 0.25, "endurance": 0.45, "sprint": 0.30},
+        {"name": "allround",  "speed": 0.33, "endurance": 0.34, "sprint": 0.33},
+        {"name": "speedster", "speed": 0.45, "endurance": 0.25, "sprint": 0.30},
+        {"name": "grinder",   "speed": 0.20, "endurance": 0.50, "sprint": 0.30},
+        {"name": "closer",    "speed": 0.25, "endurance": 0.30, "sprint": 0.45},
+    ]
+
+    NPC_DRIVER_NAMES = [
+        "A. Lindqvist", "B. Persson", "C. Johansson", "D. Eriksson",
+        "E. Nilsson", "F. Svensson", "G. Andersson", "H. Karlsson",
+        "I. Gustafsson", "J. Olsson", "K. Pettersson", "L. Berglund",
+        "M. Ström", "N. Bergström", "O. Larsson", "P. Fredriksson",
+        "R. Sandberg", "S. Holmberg", "T. Lundgren", "U. Björk",
+    ]
+
     def __init__(self, rng: random.Random = None):
         self.rng = rng or random.Random()
 
     def generate_horse_name(self) -> str:
-        prefix = self.rng.choice(HORSE_NAME_PREFIXES)
-        suffix = self.rng.choice(HORSE_NAME_SUFFIXES)
-        return prefix + suffix
+        """Generate realistic Swedish/international trav horse name."""
+        style = self.rng.choices(
+            ["prefix_suffix", "swedish_combo", "standalone", "standalone_suffix"],
+            weights=[0.35, 0.15, 0.25, 0.25],
+        )[0]
 
-    def generate_horse(self, division_level: int, role: str = "STEADY") -> HorseStats:
-        # Division 1 = elite (highest stats), Division 6 = beginner (lowest)
-        base_power = 90 - (division_level * 8)  # div1=82, div3=66, div6=42
-        # Some NPCs are competitive, some weaker — realistic spread
-        variance = self.rng.uniform(0.94, 1.06)
+        parts = HORSE_NAME_PARTS
+        if style == "prefix_suffix":
+            return self.rng.choice(parts["prefixes"]) + self.rng.choice(parts["suffixes"])
+        elif style == "swedish_combo":
+            return self.rng.choice(parts["swedish_first"]) + self.rng.choice(parts["swedish_second"])
+        elif style == "standalone":
+            return self.rng.choice(parts["standalone"])
+        else:  # standalone_suffix
+            return self.rng.choice(parts["standalone"]) + " " + self.rng.choice(parts["suffixes"])
 
-        stats = {
-            "speed": int(clamp(base_power * variance + self.rng.gauss(0, 6), 25, 95)),
-            "endurance": int(clamp(base_power * variance + self.rng.gauss(0, 6), 25, 95)),
-            "mentality": int(clamp(base_power * variance + self.rng.gauss(0, 8), 25, 95)),
-            "start_ability": int(clamp(base_power * variance + self.rng.gauss(0, 6), 25, 95)),
-            "sprint_strength": int(clamp(base_power * variance + self.rng.gauss(0, 6), 25, 95)),
-            "balance": int(clamp(base_power * variance + self.rng.gauss(0, 5), 25, 95)),
-            "strength": int(clamp(base_power * variance + self.rng.gauss(0, 5), 25, 95)),
-        }
+    def _calculate_player_rating(self, player_entries: list[RaceEntry]) -> float:
+        """Calculate average power rating of player horses."""
+        if not player_entries:
+            return 60.0  # Default mid-range
+        ratings = []
+        for entry in player_entries:
+            h = entry.horse
+            # Weighted average of key stats
+            rating = (h.speed * 0.35 + h.endurance * 0.25 + h.sprint_strength * 0.20 +
+                     h.start_ability * 0.10 + h.balance * 0.05 + h.mentality * 0.05)
+            # Adjust for form/condition
+            form = getattr(h, 'form', 50)
+            condition = getattr(h, 'condition', 80)
+            rating *= (0.9 + form / 500)  # form 50 → 1.0, form 80 → 1.06
+            rating *= (0.9 + condition / 500)  # condition 80 → 1.06
+            ratings.append(rating)
+        return sum(ratings) / len(ratings)
 
-        gallop = int(clamp(15 + self.rng.gauss(0, 5), 5, 35))
+    def generate_horse(self, target_rating: float, role: str = "midfield") -> HorseStats:
+        """Generate NPC horse matched to target rating with role-based offset."""
 
-        if role == "PACEMAKER":
-            stats["speed"] += 10
-            stats["endurance"] -= 10
-        elif role == "CLOSER":
-            stats["speed"] -= 5
-            stats["sprint_strength"] += 12
-        elif role == "WILDCARD":
-            gallop = self.rng.randint(20, 40)
-            stats["speed"] += self.rng.randint(-3, 12)
-        # STEADY = no modifications
+        # Role-based rating adjustment
+        if role == "contender":
+            adjusted_rating = target_rating + self.rng.uniform(2, 8)
+        elif role == "backmarker":
+            adjusted_rating = target_rating + self.rng.uniform(-12, -3)
+        else:  # midfield
+            adjusted_rating = target_rating + self.rng.uniform(-5, 5)
+
+        adjusted_rating = clamp(adjusted_rating, 25, 95)
+
+        # Pick a random stat profile
+        profile = self.rng.choice(self.PROFILES)
+
+        # Distribute total stat pool according to profile with variation
+        total_pool = adjusted_rating * 3
+        vary = lambda: 1.0 + self.rng.uniform(-0.10, 0.10)
+
+        speed = int(clamp(total_pool * profile["speed"] * vary(), 25, 95))
+        endurance = int(clamp(total_pool * profile["endurance"] * vary(), 25, 95))
+        sprint = int(clamp(total_pool * profile["sprint"] * vary(), 25, 95))
+
+        # Secondary stats derived from rating
+        balance = int(clamp(self.rng.gauss(adjusted_rating * 0.85, 8), 25, 95))
+        mentality = int(clamp(self.rng.gauss(adjusted_rating * 0.80, 10), 25, 95))
+        start_ability = int(clamp(self.rng.gauss(adjusted_rating * 0.90, 8), 25, 95))
+        strength = int(clamp(self.rng.gauss(adjusted_rating * 0.85, 7), 25, 95))
+
+        gallop = int(clamp(15 + self.rng.gauss(0, 7), 5, 45))
+        racing_instinct = int(clamp(self.rng.gauss(adjusted_rating * 0.80, 12), 20, 90))
+
+        # Form, condition, mood, confidence — realistic variation
+        form = int(clamp(self.rng.gauss(50, 12), 25, 80))
+        condition = int(clamp(self.rng.gauss(82, 8), 60, 98))
+        mood = int(clamp(self.rng.gauss(65, 10), 40, 90))
+        confidence = int(clamp(self.rng.gauss(50, 15), 20, 80))
 
         personality_opts = ["calm", "hot", "stubborn", "responsive", "brave", "sensitive"]
-
-        # NPC horses need realistic condition/form/mood — not just defaults
-        npc_form = int(clamp(45 + self.rng.gauss(0, 12), 20, 80))
-        npc_condition = int(clamp(82 + self.rng.gauss(0, 8), 60, 98))
-        npc_mood = int(clamp(65 + self.rng.gauss(0, 10), 40, 90))
-        npc_confidence = int(clamp(50 + self.rng.gauss(0, 15), 20, 80))
-        npc_racing_instinct = int(clamp(45 + self.rng.gauss(0, 12), 20, 80))
 
         return HorseStats(
             id=f"npc_{self.rng.randint(100000, 999999)}",
             name=self.generate_horse_name(),
             is_npc=True,
+            speed=speed,
+            endurance=endurance,
+            sprint_strength=sprint,
+            balance=balance,
+            mentality=mentality,
+            start_ability=start_ability,
+            strength=strength,
             gallop_tendency=gallop,
+            racing_instinct=racing_instinct,
+            form=form,
+            condition=condition,
+            mood=mood,
+            confidence=confidence,
             personality_primary=self.rng.choice(personality_opts),
             personality_secondary=self.rng.choice(personality_opts),
-            form=npc_form,
-            condition=npc_condition,
-            mood=npc_mood,
-            confidence=npc_confidence,
-            racing_instinct=npc_racing_instinct,
-            **stats,
         )
 
-    def generate_driver(self, division_level: int) -> DriverStats:
-        base = 85 - division_level * 7  # div1=78, div3=64, div6=43
+    def generate_driver(self, target_rating: float) -> DriverStats:
+        """Generate NPC driver matched to target rating."""
+        base = clamp(target_rating * 0.85 + self.rng.gauss(0, 6), 25, 95)
         return DriverStats(
             id=f"npc_driver_{self.rng.randint(1000, 9999)}",
-            name="Systemkusk",
+            name=self.rng.choice(self.NPC_DRIVER_NAMES),
             is_npc=True,
-            skill=int(clamp(base + self.rng.gauss(0, 6), 25, 95)),
-            start_skill=int(clamp(base + self.rng.gauss(0, 6), 25, 95)),
-            tactical_ability=int(clamp(base + self.rng.gauss(0, 6), 25, 95)),
-            sprint_timing=int(clamp(base + self.rng.gauss(0, 6), 25, 95)),
-            gallop_handling=int(clamp(base + self.rng.gauss(0, 6), 25, 95)),
-            experience=int(clamp(base * 0.85 + self.rng.gauss(0, 5), 20, 90)),
-            composure=int(clamp(base + self.rng.gauss(0, 6), 25, 95)),
+            skill=int(clamp(base + self.rng.gauss(0, 5), 25, 95)),
+            start_skill=int(clamp(base + self.rng.gauss(0, 5), 25, 95)),
+            tactical_ability=int(clamp(base + self.rng.gauss(0, 5), 25, 95)),
+            sprint_timing=int(clamp(base + self.rng.gauss(0, 5), 25, 95)),
+            gallop_handling=int(clamp(base + self.rng.gauss(0, 5), 25, 95)),
+            experience=int(clamp(base * 0.85, 20, 90)),
+            composure=int(clamp(base + self.rng.gauss(0, 5), 25, 95)),
             driving_style=self.rng.choice(["patient", "offensive", "tactical"]),
+        )
+
+    def _generate_smart_tactics(self, horse: HorseStats, role: str) -> Tactics:
+        """Generate tactics based on horse stats and role."""
+
+        # Positioning: based on horse profile + role
+        if role == "contender":
+            # Strong horses go for lead or second
+            if horse.speed > horse.sprint_strength:
+                pos = self.rng.choices(
+                    [Positioning.LEAD, Positioning.SECOND, Positioning.OUTSIDE],
+                    weights=[0.40, 0.35, 0.25],
+                )[0]
+            else:
+                pos = self.rng.choices(
+                    [Positioning.SECOND, Positioning.BACK, Positioning.TRAILING],
+                    weights=[0.35, 0.35, 0.30],
+                )[0]
+        elif role == "backmarker":
+            pos = self.rng.choices(
+                [Positioning.SECOND, Positioning.TRAILING, Positioning.BACK],
+                weights=[0.30, 0.30, 0.40],
+            )[0]
+        else:  # midfield
+            pos = self.rng.choices(
+                [Positioning.LEAD, Positioning.SECOND, Positioning.OUTSIDE, Positioning.TRAILING, Positioning.BACK],
+                weights=[0.15, 0.30, 0.15, 0.20, 0.20],
+            )[0]
+
+        # Tempo: leader → balanced/offensive, back → cautious
+        if pos == Positioning.LEAD:
+            tempo = self.rng.choices(
+                [Tempo.OFFENSIVE, Tempo.BALANCED],
+                weights=[0.40, 0.60],
+            )[0]
+        elif pos == Positioning.BACK:
+            tempo = self.rng.choices(
+                [Tempo.CAUTIOUS, Tempo.BALANCED],
+                weights=[0.60, 0.40],
+            )[0]
+        else:
+            tempo = self.rng.choices(
+                [Tempo.OFFENSIVE, Tempo.BALANCED, Tempo.CAUTIOUS],
+                weights=[0.20, 0.50, 0.30],
+            )[0]
+
+        # Sprint order: closers → early, leaders → normal/late
+        if pos == Positioning.BACK or horse.sprint_strength > horse.speed:
+            sprint = self.rng.choices(
+                [SprintOrder.EARLY_600M, SprintOrder.NORMAL_400M, SprintOrder.LATE_250M],
+                weights=[0.45, 0.35, 0.20],
+            )[0]
+        else:
+            sprint = self.rng.choices(
+                [SprintOrder.EARLY_600M, SprintOrder.NORMAL_400M, SprintOrder.LATE_250M],
+                weights=[0.20, 0.50, 0.30],
+            )[0]
+
+        # Gallop safety: high gallop tendency → safe
+        if horse.gallop_tendency > 25:
+            safety = self.rng.choices(
+                [GallopSafety.SAFE, GallopSafety.NORMAL],
+                weights=[0.60, 0.40],
+            )[0]
+        else:
+            safety = self.rng.choices(
+                [GallopSafety.SAFE, GallopSafety.NORMAL, GallopSafety.RISKY],
+                weights=[0.15, 0.55, 0.30],
+            )[0]
+
+        # Sulky + warmup
+        sulky = self.rng.choice(["european", "american", "racing"])
+        warmup = self.rng.choices(
+            ["light", "normal", "intense"],
+            weights=[0.25, 0.50, 0.25],
+        )[0]
+
+        return Tactics(
+            positioning=pos,
+            tempo=tempo,
+            sprint_order=sprint,
+            gallop_safety=safety,
+            sulky=sulky,
+            warmup=warmup,
         )
 
     def fill_race_field(
@@ -1849,29 +2008,41 @@ class NPCGenerator:
         min_field: int = 8,
         max_field: int = 12,
     ) -> list[RaceEntry]:
+        """Fill race field with NPCs matched to player horse ratings."""
         field = list(player_entries)
-        npc_needed = max(0, min_field - len(field))
-        npc_needed = max(npc_needed, 2)  # Always at least 2 NPC for variety
-        npc_needed = min(npc_needed, max_field - len(field))
 
+        # Calculate target field size
+        target_size = self.rng.randint(min_field, max_field)
+        npc_needed = max(0, target_size - len(field))
+        npc_needed = max(npc_needed, 2)  # Always at least 2 NPC
+        npc_needed = min(npc_needed, max_field - len(field))
         if npc_needed <= 0:
             return field
 
-        # Role distribution
+        # Calculate player rating for smart matching
+        player_rating = self._calculate_player_rating(player_entries)
+
+        # If no player entries, use division-based fallback
+        # Division 1 = elite (82), Division 6 = beginner (42)
+        if not player_entries:
+            player_rating = 90 - (division_level * 8)
+
+        # Role distribution: contender/midfield/backmarker
+        # Normal difficulty: 20% contender, 55% midfield, 25% backmarker
         roles = []
-        if npc_needed >= 2:
-            roles.extend(["PACEMAKER", "CLOSER"])
-            npc_needed -= 2
-        for _ in range(npc_needed):
-            roles.append(self.rng.choices(
-                ["STEADY", "STEADY", "STEADY", "WILDCARD"],
-                weights=[3, 3, 3, 1],
-            )[0])
+        num_contenders = max(1, round(npc_needed * 0.20))
+        num_backmarkers = max(1, round(npc_needed * 0.25))
+        num_midfield = npc_needed - num_contenders - num_backmarkers
+
+        roles.extend(["contender"] * num_contenders)
+        roles.extend(["midfield"] * num_midfield)
+        roles.extend(["backmarker"] * num_backmarkers)
+        self.rng.shuffle(roles)
 
         for role in roles:
-            horse = self.generate_horse(division_level, role)
-            driver = self.generate_driver(division_level)
-            tactics = self._npc_tactics(horse, role)
+            horse = self.generate_horse(player_rating, role)
+            driver = self.generate_driver(player_rating)
+            tactics = self._generate_smart_tactics(horse, role)
             shoe = self.rng.choice([ShoeType.NORMAL_STEEL, ShoeType.LIGHT_ALUMINUM])
             compat = int(clamp(50 + self.rng.gauss(0, 15), 25, 90))
 
@@ -1889,44 +2060,6 @@ class NPCGenerator:
             entry.post_position = i + 1
 
         return field
-
-    def _npc_tactics(self, horse: HorseStats, role: str) -> Tactics:
-        if role == "PACEMAKER":
-            return Tactics(
-                positioning=Positioning.LEAD,
-                tempo=Tempo.OFFENSIVE,
-                sprint_order=SprintOrder.NORMAL_400M,
-                gallop_safety=GallopSafety.NORMAL,
-                sulky="american",
-                warmup="intense",
-            )
-        elif role == "CLOSER":
-            return Tactics(
-                positioning=Positioning.BACK,
-                tempo=Tempo.CAUTIOUS,
-                sprint_order=SprintOrder.EARLY_600M,
-                gallop_safety=GallopSafety.SAFE,
-                sulky="european",
-                warmup="light",
-            )
-        elif role == "WILDCARD":
-            return Tactics(
-                positioning=self.rng.choice([Positioning.LEAD, Positioning.OUTSIDE]),
-                tempo=Tempo.OFFENSIVE,
-                sprint_order=SprintOrder.EARLY_600M,
-                gallop_safety=GallopSafety.RISKY,
-                sulky="racing",
-                warmup="intense",
-            )
-        else:  # STEADY
-            return Tactics(
-                positioning=Positioning.SECOND,
-                tempo=Tempo.BALANCED,
-                sprint_order=SprintOrder.NORMAL_400M,
-                gallop_safety=GallopSafety.NORMAL,
-                sulky="european",
-                warmup="normal",
-            )
 
 
 # ============================================================
