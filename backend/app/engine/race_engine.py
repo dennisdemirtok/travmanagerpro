@@ -958,8 +958,9 @@ class RaceEngine:
     def _calc_target_speed(self, entry: RaceEntry, remaining: int, all_entries: list[RaceEntry]) -> float:
         h = entry.horse
 
-        # Base speed
-        base = (h.speed * 0.6 + h.endurance * 0.4) / 10
+        # Base speed — compressed formula to match real trav gaps (top 5 within ~3-5%)
+        raw_power = h.speed * 0.6 + h.endurance * 0.4
+        base = 6.0 + raw_power / 50  # 65 stats → 7.30, 80 stats → 7.60 (4% gap, not 23%)
 
         # Apply all pre-race mods
         base *= entry._shoe_speed_mod
@@ -1096,7 +1097,8 @@ class RaceEngine:
         actual_speed = entry.current_speed + clamp(speed_diff, -max_accel, max_accel)
 
         # Energy drain
-        base_speed = (h.speed * 0.6 + h.endurance * 0.4) / 10
+        raw_power = h.speed * 0.6 + h.endurance * 0.4
+        base_speed = 6.0 + raw_power / 50
         speed_ratio = actual_speed / base_speed if base_speed > 0 else 1.0
 
         energy_cost = (
@@ -1654,7 +1656,7 @@ class RaceEngine:
             for pos_idx, entry in enumerate(active):
                 position = pos_idx + 1
                 dist_behind = winner_pos - entry.position_meters
-                time_behind = dist_behind * 0.35
+                time_behind = dist_behind * 0.075  # ~13.3 m/s avg → 0.075 s/m (realistic trav)
                 total_time = winner_total + time_behind
                 km_time = total_time / (cond.distance / 1000)
 
