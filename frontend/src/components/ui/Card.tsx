@@ -14,9 +14,9 @@ export function Card({ children, className, onClick, hoverable = false }: CardPr
     <div
       onClick={onClick}
       className={cn(
-        "bg-trav-card border border-trav-border rounded-[10px] p-4 transition-all duration-200",
-        hoverable && "hover:bg-trav-hover hover:border-trav-border-light cursor-pointer",
-        onClick && "cursor-pointer",
+        "bg-trav-card border border-trav-border rounded-xl p-4 shadow-card transition-all duration-200",
+        hoverable && "hover:bg-trav-card-hover hover:border-trav-border-light hover:shadow-card-hover cursor-pointer",
+        onClick && "cursor-pointer hover:bg-trav-card-hover hover:border-trav-border-light hover:shadow-card-hover",
         className
       )}
     >
