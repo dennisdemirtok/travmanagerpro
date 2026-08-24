@@ -95,7 +95,7 @@ const NAV_ITEMS: { href: string; label: string; icon: IconKey }[] = [
   { href: "/races", label: "Lopp", icon: "races" },
   { href: "/market", label: "Marknad", icon: "market" },
   { href: "/drivers", label: "Kuskar", icon: "drivers" },
-  { href: "/caretakers", label: "Skotare", icon: "caretakers" },
+  { href: "/caretakers", label: "Skötare", icon: "caretakers" },
   { href: "/breeding", label: "Avel", icon: "breeding" },
   { href: "/sponsors", label: "Sponsorer", icon: "sponsors" },
   { href: "/finances", label: "Ekonomi", icon: "finances" },

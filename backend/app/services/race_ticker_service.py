@@ -118,6 +118,16 @@ async def tick_races(db: AsyncSession) -> list[dict]:
         if costs > 0:
             logger.info(f"Weekly costs deducted for week {current_week}: {costs} öre")
 
+        # 2b. Skuldhantering: ränta, bankbrev, tvångsförsäljning, konkursgolv
+        debt = await finance_service.process_weekly_debt(db, current_week)
+        if debt.get("interest_charged"):
+            logger.info(
+                f"Debt processing week {current_week}: "
+                f"{debt['interest_charged']} öre interest, "
+                f"{debt['forced_sales']} forced sales, "
+                f"{debt['restart_offers']} restart offers"
+            )
+
         # 3. Apply weekly form changes (personality-driven form volatility)
         await apply_weekly_form_changes(db, current_week)
 

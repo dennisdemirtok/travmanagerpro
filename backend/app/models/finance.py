@@ -47,4 +47,5 @@ class SponsorContract(Base):
     starts_week: Mapped[int] = mapped_column(Integer, nullable=False)
     ends_week: Mapped[int] = mapped_column(Integer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    min_starts_per_week: Mapped[int] = mapped_column(Integer, default=2, server_default="2")
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())

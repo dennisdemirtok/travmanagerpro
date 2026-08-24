@@ -53,20 +53,20 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-3.5">
           <div>
-            <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1.5 block">Anvandarnamn</label>
+            <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1.5 block">Användarnamn</label>
             <input
               type="text"
-              placeholder="Ditt anvandarnamn"
+              placeholder="Ditt användarnamn"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-trav-bg border border-trav-border rounded-lg text-sm text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-trav-gold/60 focus:ring-1 focus:ring-trav-gold/20 transition-colors"
             />
           </div>
           <div>
-            <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1.5 block">Losenord</label>
+            <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wider mb-1.5 block">Lösenord</label>
             <input
               type="password"
-              placeholder="Ditt losenord"
+              placeholder="Ditt lösenord"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-trav-bg border border-trav-border rounded-lg text-sm text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-trav-gold/60 focus:ring-1 focus:ring-trav-gold/20 transition-colors"
@@ -83,7 +83,7 @@ export default function LoginPage() {
             </div>
           )}
           <Button type="submit" disabled={loading} className="w-full mt-1">
-            {loading ? "Loggar in..." : "Logga in"}
+            {loading ? "Loggar in…" : "Logga in"}
           </Button>
         </form>
         <p className="text-center text-xs text-gray-500 mt-5">

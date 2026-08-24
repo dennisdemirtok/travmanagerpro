@@ -88,6 +88,7 @@ class Horse(Base):
     dam_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("horses.id", ondelete="SET NULL"), nullable=True)
     bloodline_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("bloodlines.id"), nullable=True)
     generation: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    breeder_stable_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("stables.id", ondelete="SET NULL"), nullable=True)
 
     # Training
     current_training: Mapped[TrainingProgram | None] = mapped_column(PgEnum(TrainingProgram, "training_program"), default=TrainingProgram.REST)
@@ -134,8 +135,11 @@ class Horse(Base):
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    stable = relationship("Stable", back_populates="horses")
+    stable = relationship("Stable", back_populates="horses", foreign_keys=[stable_id])
+    breeder_stable = relationship("Stable", foreign_keys=[breeder_stable_id], viewonly=True)
     bloodline = relationship("Bloodline")
     sire = relationship("Horse", remote_side="Horse.id", foreign_keys=[sire_id])
     dam = relationship("Horse", remote_side="Horse.id", foreign_keys=[dam_id])
-    feed_plans = relationship("FeedPlan", back_populates="horse")
+    # DB:n har ON DELETE CASCADE — låt Postgres städa i stället för att
+    # SQLAlchemy försöker nolla horse_id (NOT NULL) när en häst raderas.
+    feed_plans = relationship("FeedPlan", back_populates="horse", passive_deletes=True)

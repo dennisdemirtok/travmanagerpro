@@ -223,6 +223,7 @@ async def _create_foal(db: AsyncSession, mare: Horse, game_week: int):
 
     foal = Horse(
         stable_id=mare.stable_id,
+        breeder_stable_id=mare.stable_id,  # uppfödarpremie följer hästen livet ut
         name=foal_name,
         gender=gender,
         birth_game_week=game_week,

@@ -12,6 +12,29 @@ from app.services import finance_service
 logger = logging.getLogger(__name__)
 
 
+async def count_starts_this_week(db: AsyncSession, stable_id, game_week: int) -> int:
+    """Antal lopp stallet startat i under en given speldagsvecka."""
+    from sqlalchemy import func as sa_func
+    from app.models.race import Race, RaceEntry, RaceSession
+
+    result = await db.execute(
+        select(sa_func.count(RaceEntry.id))
+        .join(Race, RaceEntry.race_id == Race.id)
+        .join(RaceSession, Race.session_id == RaceSession.id)
+        .where(
+            RaceEntry.stable_id == stable_id,
+            RaceEntry.is_scratched == False,
+            RaceSession.game_week == game_week,
+        )
+    )
+    return result.scalar() or 0
+
+
+def sponsor_activation_factor(starts: int, required: int) -> float:
+    """Uppfyller stallet aktivitetskravet? Annars halveras veckopengen."""
+    return 1.0 if starts >= max(0, required) else 0.5
+
+
 async def get_available_sponsors(db: AsyncSession, stable_id) -> list[dict]:
     """Return all sponsors with contract status for this stable."""
     stable_result = await db.execute(select(Stable).where(Stable.id == stable_id))
@@ -182,13 +205,17 @@ async def collect_weekly_sponsor_income(db: AsyncSession, game_week: int) -> int
         stable = stable_result.scalar_one_or_none()
 
         if stable and stable.is_npc:
+            starts = await count_starts_this_week(db, contract.stable_id, game_week)
+            required = getattr(contract, "min_starts_per_week", 2) or 2
+            factor = sponsor_activation_factor(starts, required)
+            payment = int(contract.weekly_payment * factor)
             await finance_service.record_transaction(
-                db, contract.stable_id, contract.weekly_payment,
+                db, contract.stable_id, payment,
                 "sponsor_income",
                 f"Sponsorinkomst vecka {game_week}",
                 game_week,
             )
-            total_paid += contract.weekly_payment
+            total_paid += payment
 
         # Check if contract expires this week
         if game_week >= contract.ends_week:
@@ -233,18 +260,30 @@ async def collect_player_sponsor_income(
 
     total_income = 0
     sponsor_details = []
+    starts = await count_starts_this_week(db, stable_id, game_week)
 
     for contract in contracts:
-        await finance_service.record_transaction(
-            db, stable_id, contract.weekly_payment,
-            "sponsor_income",
-            f"Sponsorinkomst vecka {game_week}",
-            game_week,
+        required = getattr(contract, "min_starts_per_week", 2) or 2
+        factor = sponsor_activation_factor(starts, required)
+        payment = int(contract.weekly_payment * factor)
+        met = factor >= 1.0
+        note = (
+            f"Sponsorinkomst vecka {game_week}"
+            if met
+            else f"Sponsorinkomst vecka {game_week} — HALVERAD "
+                 f"({starts}/{required} starter, aktivitetskravet ej uppfyllt)"
         )
-        total_income += contract.weekly_payment
+        await finance_service.record_transaction(
+            db, stable_id, payment, "sponsor_income", note, game_week,
+        )
+        total_income += payment
         sponsor_details.append({
             "contract_id": str(contract.id),
-            "amount": contract.weekly_payment,
+            "amount": payment,
+            "full_amount": contract.weekly_payment,
+            "activation_met": met,
+            "starts": starts,
+            "required_starts": required,
         })
 
         # Check if contract expires this week
@@ -284,6 +323,7 @@ async def get_active_contracts(db: AsyncSession, stable_id) -> list[dict]:
             "starts_week": c.starts_week,
             "ends_week": c.ends_week,
             "weeks_remaining": max(0, c.ends_week - c.starts_week),
+            "min_starts_per_week": getattr(c, "min_starts_per_week", 2) or 2,
         }
         for c, s in results
     ]

@@ -32,8 +32,15 @@ class Stable(Base):
     last_press_release_week: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_sponsor_collection_week: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
+    # Ekonomi 2.0 — lån & skuld
+    loan_principal: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    loan_taken_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    forced_sale_deadline_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    debt_warning_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    restarts_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
     user = relationship("User", back_populates="stable")
-    horses = relationship("Horse", back_populates="stable")
+    horses = relationship("Horse", back_populates="stable", foreign_keys="Horse.stable_id", passive_deletes=True)
     driver_contracts = relationship("DriverContract", back_populates="stable")
     facilities = relationship("Facility", back_populates="stable")
     transactions = relationship("Transaction", back_populates="stable")

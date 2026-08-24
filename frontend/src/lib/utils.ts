@@ -6,7 +6,9 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatOre(ore: number): string {
-  const kr = ore / 100;
+  // Avrunda till hela kronor. Belopp lagras i ören, men spelaren ska aldrig
+  // se "73 312,5 kr" — trav räknar i kronor.
+  const kr = Math.round(ore / 100);
   return kr.toLocaleString("sv-SE") + " kr";
 }
 

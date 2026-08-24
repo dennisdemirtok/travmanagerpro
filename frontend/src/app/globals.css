@@ -1,45 +1,187 @@
+/* Fonts must be imported before any other rule */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+/* ── Design tokens ─────────────────────────────────────────────── */
+:root {
+  --bg: #0C0E13;
+  --bg-elevated: #10131A;
+  --card: #141720;
+  --border: #252A3A;
+  --border-light: #2E3448;
+  --text: #E8E6E1;
+  --text-dim: #9AA0AE;
+  --gold: #D4A853;
+  --gold-bright: #F0C864;
+  --pos: #4ADE80;
+  --neg: #F87171;
+  --warn: #FB923C;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 120ms;
+  --dur: 180ms;
+}
+
+html {
+  color-scheme: dark;
+}
 
 body {
-  background-color: #0C0E13;
-  color: #E8E6E1;
+  background-color: var(--bg);
+  /* Mjuk ljuskälla uppe till vänster ger djup utan att störa datatätheten */
+  background-image:
+    radial-gradient(1200px 600px at 12% -10%, rgba(212, 168, 83, 0.045), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(90, 120, 200, 0.035), transparent 55%);
+  background-attachment: fixed;
+  color: var(--text);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
+/* Rubriker: tightare spärr, som i moderna dashboards */
+h1, h2, h3, h4 {
+  letter-spacing: -0.02em;
+}
+
+/* ── Scrollbars ────────────────────────────────────────────────── */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #252A3A #0C0E13;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--border-light);
+  background-clip: content-box;
 }
 
-/* Subtle focus ring for accessibility */
+/* ── Fokus & markering ─────────────────────────────────────────── */
 :focus-visible {
-  outline: 2px solid #D4A853;
+  outline: 2px solid var(--gold);
   outline-offset: 2px;
+  border-radius: 6px;
 }
 
-/* Smooth page transitions */
+::selection {
+  background: rgba(212, 168, 83, 0.28);
+  color: var(--gold-bright);
+}
+
+/* ── Sidövergång ───────────────────────────────────────────────── */
 main {
-  animation: fadeIn 0.15s ease-out;
+  animation: fadeIn var(--dur) var(--ease-out);
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(2px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Better selection color */
-::selection {
-  background: rgba(212, 168, 83, 0.3);
-  color: #F0C864;
-}
-
-/* Number formatting */
+/* ── Siffror ───────────────────────────────────────────────────── */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+/* Alla tabeller och nyckeltal ska ha fasta siffror så kolumner inte hoppar */
+table, .stat-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Hjälpklasser ──────────────────────────────────────────────── */
+
+/* Sektionsrubrik i versaler — används för korttitlar */
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* Subtil guldram för det som är "ditt" i listor och fält */
+.is-mine {
+  box-shadow: inset 2px 0 0 var(--gold);
+  background: linear-gradient(90deg, rgba(212, 168, 83, 0.06), transparent 40%);
+}
+
+/* Skimmer för laddning */
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.07) 37%, rgba(255,255,255,0.03) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: 6px;
+}
+
+@keyframes shimmer {
+  from { background-position: 100% 50%; }
+  to   { background-position: 0 50%; }
+}
+
+/* Pulserande varning för kritiska ekonomilägen */
+.pulse-warn {
+  animation: pulseWarn 2.4s var(--ease-out) infinite;
+}
+
+@keyframes pulseWarn {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.18); }
+  50%      { box-shadow: 0 0 0 6px rgba(248, 113, 113, 0); }
+}
+
+/* Range-reglage (lånepanelen) */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--gold);
+  border: 2px solid var(--bg);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--gold);
+  border: 2px solid var(--bg);
+  cursor: pointer;
+}
+
+/* Respektera användarens rörelseinställning */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

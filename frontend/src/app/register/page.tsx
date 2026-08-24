@@ -39,7 +39,7 @@ export default function RegisterPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <input
             type="text"
-            placeholder="Anvandarnamn"
+            placeholder="Användarnamn"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
             className="w-full px-3 py-2 bg-trav-bg border border-trav-border rounded-lg text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-trav-gold"
@@ -53,7 +53,7 @@ export default function RegisterPage() {
           />
           <input
             type="password"
-            placeholder="Losenord"
+            placeholder="Lösenord"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full px-3 py-2 bg-trav-bg border border-trav-border rounded-lg text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-trav-gold"
@@ -67,7 +67,7 @@ export default function RegisterPage() {
           />
           {error && <p className="text-red-400 text-sm">{error}</p>}
           <Button type="submit" disabled={loading} className="w-full">
-            {loading ? "Skapar..." : "Registrera"}
+            {loading ? "Skapar…" : "Registrera"}
           </Button>
         </form>
         <p className="text-center text-sm text-gray-500 mt-4">

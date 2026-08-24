@@ -5,8 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
+import { formatOre } from "@/lib/utils";
 
-const DAY_NAMES = ["Mandag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lordag", "Sondag"];
+const DAY_NAMES = ["Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag", "Söndag"];
 
 export function TopBar() {
   const { username, logout } = useAuthStore();
@@ -16,6 +17,12 @@ export function TopBar() {
   const { data: gameState } = useQuery({
     queryKey: ["gameState"],
     queryFn: api.getGameState,
+    refetchInterval: 60000,
+  });
+
+  const { data: finances } = useQuery({
+    queryKey: ["finances"],
+    queryFn: api.getFinancialOverview,
     refetchInterval: 60000,
   });
 
@@ -65,6 +72,28 @@ export function TopBar() {
       </div>
 
       <div className="flex items-center gap-3">
+        {/* Saldo — alltid synligt, färgat efter läge */}
+        {finances && (
+          <div
+            className="flex flex-col items-end leading-tight px-3 py-1 rounded-lg border"
+            style={{
+              borderColor: balanceTone(finances).border,
+              backgroundColor: balanceTone(finances).bg,
+            }}
+            title={finances.debt?.label || "Saldo"}
+          >
+            <span
+              className="text-sm font-bold tabular-nums"
+              style={{ color: balanceTone(finances).text }}
+            >
+              {formatOre(finances.balance)}
+            </span>
+            <span className="text-[10px] text-gray-500 tabular-nums">
+              −{formatOre(finances.weekly_costs?.total || 0)}/v
+            </span>
+          </div>
+        )}
+
         <div className="flex items-center gap-2 bg-trav-hover/50 rounded-lg px-3 py-1.5">
           <div className="w-6 h-6 rounded-full bg-gradient-to-br from-trav-gold/30 to-trav-gold-dim/30 flex items-center justify-center">
             <span className="text-[10px] font-bold text-trav-gold">{(username || "?")[0].toUpperCase()}</span>
@@ -80,4 +109,15 @@ export function TopBar() {
       </div>
     </header>
   );
+}
+
+function balanceTone(finances: any) {
+  const level = finances?.debt?.level || (finances?.balance < 0 ? "warning" : "ok");
+  if (level === "critical" || level === "severe")
+    return { text: "#F87171", border: "rgba(248,113,113,0.35)", bg: "rgba(248,113,113,0.08)" };
+  if (level === "warning")
+    return { text: "#FB923C", border: "rgba(251,146,60,0.3)", bg: "rgba(251,146,60,0.07)" };
+  if (level === "loan")
+    return { text: "#D4A853", border: "rgba(212,168,83,0.28)", bg: "rgba(212,168,83,0.07)" };
+  return { text: "#D4A853", border: "rgba(37,42,58,1)", bg: "rgba(26,30,42,0.5)" };
 }

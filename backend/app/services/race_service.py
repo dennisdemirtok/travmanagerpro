@@ -221,7 +221,9 @@ async def enter_race(db: AsyncSession, race_id, horse_id, driver_id, stable_id, 
     if existing:
         return {"error": "Hästen är redan anmäld till detta lopp"}
 
-    # Check driver is contracted
+    # Kusken behöver INTE vara kontrakterad. Saknas kontrakt körs hen som
+    # frilanskusk: engångsavgift per lopp i stället för fast veckolön,
+    # så nybörjare slipper binda upp sig på en lön de inte har råd med.
     contract_result = await db.execute(
         select(DriverContract).where(
             DriverContract.driver_id == driver_id,
@@ -229,8 +231,7 @@ async def enter_race(db: AsyncSession, race_id, horse_id, driver_id, stable_id, 
             DriverContract.is_active == True,
         )
     )
-    if not contract_result.scalar_one_or_none():
-        return {"error": "Kusken har inget aktivt kontrakt med ditt stall"}
+    is_freelance = contract_result.scalar_one_or_none() is None
 
     # Check driver is not already booked in another race in the same session
     session_result2 = await db.execute(
@@ -299,9 +300,18 @@ async def enter_race(db: AsyncSession, race_id, horse_id, driver_id, stable_id, 
 
     await finance_service.record_transaction(
         db, stable_id, -race.entry_fee, "entry_fee",
-        f"Anmalningsavgift: {race.race_name}", game_week,
+        f"Anmälningsavgift: {race.race_name}", game_week,
         reference_type="race", reference_id=race_id,
     )
+
+    # Frilanskusk: engångsavgift per lopp. Kontrakterade kuskar betalas
+    # via veckolönen i stället.
+    if is_freelance:
+        await finance_service.record_transaction(
+            db, stable_id, -finance_service.FREELANCE_DRIVER_FEE, "freelance_driver",
+            f"Frilanskusk {driver.name} — {race.race_name}",
+            game_week, reference_type="race", reference_id=race_id,
+        )
 
     await db.flush()
 
@@ -700,9 +710,16 @@ async def simulate_race_session(db: AsyncSession, session_id):
                     if commission > 0:
                         await finance_service.record_transaction(
                             db, db_entry.stable_id, -commission, "driver_commission",
-                            f"Kuskprovision {driver.name}: {int(commission_rate*100)}% av {f.prize_money:,}",
+                            f"Kuskprovision {driver.name}: {int(commission_rate*100)} % av "
+                            f"{finance_service.format_kr(f.prize_money)}",
                             game_week, reference_type="race", reference_id=race.id,
                         )
+
+                    # Uppfödarpremie: 5 % till den som fött upp hästen
+                    await finance_service.pay_breeder_premium(
+                        db, horse, f.prize_money, race.race_name,
+                        game_week, race_id=race.id,
+                    )
 
                 # Update driver-horse history
                 hist_result = await db.execute(
@@ -777,6 +794,18 @@ async def simulate_race_session(db: AsyncSession, session_id):
                             f"Efterlopp: {db_entry.horse.name}",
                             evt_msg, game_week,
                         )
+
+        # Startpeng: alla startande hästar får garanterad ersättning
+        # (1 % av prispotten, minst 500 kr) — stoppar totalblödningen.
+        start_fee = finance_service.calculate_start_fee(race.prize_pool)
+        for db_entry in entry_map.values():
+            if db_entry.is_scratched:
+                continue
+            await finance_service.record_transaction(
+                db, db_entry.stable_id, start_fee, "start_fee",
+                f"Startpeng — {race.race_name}",
+                game_week, reference_type="race", reference_id=race.id,
+            )
 
         # Build result response
         finishers_out = []

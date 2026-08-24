@@ -66,6 +66,13 @@ export const api = {
 
   // Finances
   getFinancialOverview: () => apiFetch<any>("/finances/overview"),
+  getDebtStatus: () => apiFetch<any>("/finances/debt"),
+  takeLoan: (amount: number) =>
+    apiFetch<any>("/finances/loan", { method: "POST", body: JSON.stringify({ amount }) }),
+  repayLoan: (amount: number) =>
+    apiFetch<any>("/finances/loan/repay", { method: "POST", body: JSON.stringify({ amount }) }),
+  restartStable: (keepHorseId?: string) =>
+    apiFetch<any>("/finances/restart", { method: "POST", body: JSON.stringify({ keep_horse_id: keepHorseId ?? null }) }),
   getTransactions: (params?: { category?: string; limit?: number }) => {
     const qs = new URLSearchParams();
     if (params?.category) qs.set("category", params.category);

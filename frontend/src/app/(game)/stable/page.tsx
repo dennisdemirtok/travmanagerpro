@@ -139,16 +139,22 @@ export default function StablePage() {
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Foder</span>
-                <span className="text-red-400">{formatOre(costs.feed_cost || 0)}</span>
+                <span className="text-red-400">{formatOre(costs.feed || 0)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Personal</span>
-                <span className="text-red-400">{formatOre(costs.staff_cost || 0)}</span>
+                <span className="text-red-400">{formatOre(costs.staff || 0)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Kusklöner</span>
                 <span className="text-red-400">{formatOre(costs.driver_salaries || 0)}</span>
               </div>
+              {costs.interest > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Räntor</span>
+                  <span className="text-orange-400">{formatOre(costs.interest)}</span>
+                </div>
+              )}
               <div className="flex justify-between border-t border-trav-border pt-1.5 mt-1.5">
                 <span className="text-gray-300 font-semibold">Totalt / vecka</span>
                 <span className="text-red-400 font-bold">{formatOre(costs.total || 0)}</span>

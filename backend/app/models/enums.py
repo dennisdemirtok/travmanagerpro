@@ -197,6 +197,10 @@ class EventType(str, Enum):
     BREEDING = "breeding"
     WEATHER = "weather"
     SYSTEM = "system"
+    FINANCE = "finance"
+    STABLE_ROUND = "stable_round"
+    TRAINING = "training"
+    GOAL = "goal"
 
 
 class AuctionStatus(str, Enum):
