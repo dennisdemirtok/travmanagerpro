@@ -55,6 +55,7 @@ class RaceStartMethod(str, Enum):
 
 
 class RaceClass(str, Enum):
+    MAIDEN = "maiden"          # Maidenslopp — hästar utan seger
     V75 = "v75"
     ELITE = "elite"
     GOLD = "gold"
@@ -67,7 +68,7 @@ class RaceClass(str, Enum):
     AGE_4 = "age_4"
     MARE_RACE = "mare_race"
     AMATEUR = "amateur"
-    QUALIFIER = "qualifier"
+    QUALIFIER = "qualifier"    # Provlopp — allra första steget
 
 
 class SurfaceType(str, Enum):

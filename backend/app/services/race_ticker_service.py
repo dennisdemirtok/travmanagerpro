@@ -16,6 +16,7 @@ from app.services.game_init_service import (
 )
 from app.services.race_service import simulate_race_session, calculate_start_points
 from app.services.npc_entry_service import auto_enter_npc_horses
+from app.services import npc_entry_service as auto_enter_npc_module
 from app.services.progression_service import apply_recovery, apply_weekly_form_changes
 from app.services import finance_service
 from app.services import sponsor_service
@@ -155,6 +156,9 @@ async def tick_races(db: AsyncSession) -> list[dict]:
         processed = await market_service.process_expired_auctions(db, current_week)
         if processed > 0:
             logger.info(f"Processed {processed} expired auctions")
+
+        # 8b. Se till att alla AI-stall har en personlighet
+        await auto_enter_npc_module.ensure_stable_personalities(db)
 
         # 9. Seed new NPC listings periodically (every 2 weeks)
         if current_week % 2 == 0:

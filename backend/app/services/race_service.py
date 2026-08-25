@@ -22,6 +22,7 @@ from app.engine.race_engine import (
     calculate_compatibility, generate_race_seed, format_km_time,
 )
 from app.models.enums import (
+    RaceClass as RaceClassModel,
     TacticPositioning, TacticTempo, TacticSprint,
     TacticGallopSafety, TacticCurve, TacticWhip,
 )
@@ -131,6 +132,8 @@ async def get_race_schedule(db: AsyncSession, stable_id=None):
                 "division_level": r.division_level,
                 "surface": r.surface.value if r.surface else "dirt",
                 "min_start_points": r.min_start_points,
+                "max_start_points": getattr(r, "max_start_points", None),
+                "max_earnings": getattr(r, "max_earnings", None),
                 "is_finished": r.is_finished,
             })
 
@@ -213,11 +216,30 @@ async def enter_race(db: AsyncSession, race_id, horse_id, driver_id, stable_id, 
     if horse.status.value != "ready":
         return {"error": f"Hästen är inte redo (status: {horse.status.value})"}
 
-    # Check minimum start points
-    if race.min_start_points > 0:
+    # Loppstegen: både golv och tak, så nybörjare aldrig hamnar i elitlopp
+    # och meriterade hästar inte kan slumma i provloppen.
+    max_pts = getattr(race, "max_start_points", None)
+    if race.min_start_points > 0 or max_pts is not None:
         sp = await calculate_start_points(db, horse_id)
-        if sp["total"] < race.min_start_points:
+        if sp["total"] < (race.min_start_points or 0):
             return {"error": f"Hästen har för få startpoäng ({sp['total']}/{race.min_start_points})"}
+        if max_pts is not None and sp["total"] > max_pts:
+            return {
+                "error": f"Hästen är för meriterad för det här loppet "
+                         f"({sp['total']} startpoäng, taket är {max_pts}). "
+                         f"Sikta högre upp i loppstegen."
+            }
+
+    max_earn = getattr(race, "max_earnings", None)
+    if max_earn is not None and (horse.total_earnings or 0) > max_earn:
+        return {
+            "error": f"Hästen har tjänat för mycket för det här loppet "
+                     f"({finance_service.format_kr(horse.total_earnings)}, taket är "
+                     f"{finance_service.format_kr(max_earn)})."
+        }
+
+    if race.race_class == RaceClassModel.MAIDEN and (horse.total_wins or 0) > 0:
+        return {"error": "Maidenslopp är bara för hästar utan seger."}
 
     # Check horse not already entered in this race
     existing = [e for e in race.entries if e.horse_id == horse_id and not e.is_scratched]
@@ -527,8 +549,14 @@ async def simulate_race_session(db: AsyncSession, session_id):
         # Determine division level
         div_level = race.division_level or 6
 
-        # Fill with NPCs
-        field = npc_gen.fill_race_field(engine_entries, division_level=div_level)
+        # Svårighetsgrad och nybörjarskydd per spelarstall i loppet
+        difficulty, player_starts = await _difficulty_for_race(db, race)
+        field = npc_gen.fill_race_field(
+            engine_entries,
+            division_level=div_level,
+            difficulty=difficulty,
+            player_starts=player_starts,
+        )
 
         # Setup conditions
         weather_map = {
@@ -602,6 +630,18 @@ async def simulate_race_session(db: AsyncSession, session_id):
                     "is_npc": True,
                 })
 
+        # Diskade AI-hästar måste också med, annars försvinner de spårlöst
+        # ur resultatlistan (11 i fältet men bara 7 redovisade).
+        npc_disqualified = []
+        for d in sim_result.disqualified:
+            if d.horse_id in entry_map:
+                continue
+            npc_disqualified.append({
+                "horse": d.horse_name,
+                "reason": d.dq_reason or "Galopp",
+                "is_npc": True,
+            })
+
         # Build snapshot data for race replay (use short keys to save space)
         snapshot_data = [
             {
@@ -672,6 +712,7 @@ async def simulate_race_session(db: AsyncSession, session_id):
                 for ev in sim_result.events
             ],
             "npc_results": npc_finishers,
+            "npc_disqualified": npc_disqualified,
             "snapshots": snapshot_data,
         }
 
@@ -864,9 +905,16 @@ async def simulate_race_session(db: AsyncSession, session_id):
         # Startpeng: alla startande hästar får garanterad ersättning
         # (1 % av prispotten, minst 500 kr) — stoppar totalblödningen.
         start_fee = finance_service.calculate_start_fee(race.prize_pool)
+        counted_stables = set()
         for db_entry in entry_map.values():
             if db_entry.is_scratched:
                 continue
+            # Nybörjarskyddet bygger på antal starter stallet gjort
+            if db_entry.stable_id not in counted_stables:
+                counted_stables.add(db_entry.stable_id)
+            st = await db.get(Stable, db_entry.stable_id)
+            if st and not st.is_npc:
+                st.player_starts = (st.player_starts or 0) + 1
             await finance_service.record_transaction(
                 db, db_entry.stable_id, start_fee, "start_fee",
                 f"Startpeng — {race.race_name}",
@@ -961,6 +1009,9 @@ async def get_race_result(db: AsyncSession, race_id):
     if race.simulation_data and "npc_results" in race.simulation_data:
         for npc in race.simulation_data["npc_results"]:
             finishers.append(npc)
+    if race.simulation_data and "npc_disqualified" in race.simulation_data:
+        for npc in race.simulation_data["npc_disqualified"]:
+            disqualified.append(npc)
 
     # Sort all finishers by position
     finishers.sort(key=lambda x: x.get("position", 999))
@@ -1120,3 +1171,47 @@ def _build_tactical_reviews(sim_result, entry_map, race, stretch_class: str) -> 
         reviews[hid] = review
 
     return reviews
+
+
+async def _difficulty_for_race(db: AsyncSession, race) -> tuple[str, int]:
+    """Härled svårighetsgrad ur spelarens senaste tio resultat.
+
+    Vinner spelaren ofta höjs motståndet, går det tungt sänks det.
+    Returnerar även antal starter, som styr nybörjarskyddet.
+    """
+    stable_ids = {
+        e.stable_id for e in race.entries
+        if not e.is_scratched and e.stable_id
+    }
+    if not stable_ids:
+        return "normal", 999
+
+    player_stables = (await db.execute(
+        select(Stable).where(Stable.id.in_(stable_ids), Stable.is_npc == False)
+    )).scalars().all()
+    if not player_stables:
+        return "normal", 999
+
+    # Den minst rutinerade spelaren i loppet får styra skyddet
+    starts = min((s.player_starts or 0) for s in player_stables)
+
+    recent = (await db.execute(
+        select(RaceResultSummary)
+        .where(RaceResultSummary.stable_id.in_([s.id for s in player_stables]))
+        .order_by(RaceResultSummary.game_week.desc())
+        .limit(10)
+    )).scalars().all()
+
+    if len(recent) < 3:
+        return "normal", starts
+
+    wins = sum(1 for r in recent if r.finish_position == 1)
+    top3 = sum(1 for r in recent if r.finish_position and r.finish_position <= 3)
+    win_rate = wins / len(recent)
+    top3_rate = top3 / len(recent)
+
+    if win_rate >= 0.35 or top3_rate >= 0.65:
+        return "hard", starts
+    if win_rate <= 0.05 and top3_rate <= 0.20:
+        return "easy", starts
+    return "normal", starts

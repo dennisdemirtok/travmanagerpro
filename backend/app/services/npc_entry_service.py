@@ -85,6 +85,13 @@ async def auto_enter_npc_horses(
     if not npc_stables:
         return
 
+    # Sessionen behövs för bana och väder när AI:n väljer taktik och skor
+    session = (await db.execute(
+        select(RaceSession)
+        .options(selectinload(RaceSession.track))
+        .where(RaceSession.id == session_id)
+    )).scalar_one_or_none()
+
     # Load races in this session with current entries
     races_result = await db.execute(
         select(Race)
@@ -171,11 +178,8 @@ async def auto_enter_npc_horses(
             if stable.balance < best_race.entry_fee * 2:
                 continue
 
-            # Get tactics from personality
-            personality = horse.personality_primary
-            tactics = PERSONALITY_TACTICS.get(
-                personality, PERSONALITY_TACTICS[PersonalityType.RESPONSIVE]
-            )
+            # Stallets personlighet styr upplägget, hästens temperament finjusterar
+            tactics = _choose_tactics(stable, horse, best_race, session, rng)
 
             entry = RaceEntry(
                 race_id=best_race.id,
@@ -186,9 +190,9 @@ async def auto_enter_npc_horses(
                 tempo=tactics["tempo"],
                 sprint_order=tactics["sprint_order"],
                 gallop_safety=tactics["gallop_safety"],
-                curve_strategy=TacticCurve.MIDDLE,
-                whip_usage=TacticWhip.NORMAL,
-                shoe=horse.current_shoe or ShoeType.NORMAL_STEEL,
+                curve_strategy=tactics["curve_strategy"],
+                whip_usage=tactics["whip_usage"],
+                shoe=tactics["shoe"],
                 entry_fee_paid=best_race.entry_fee,
                 compatibility_score=50,  # NPC default
             )
@@ -218,8 +222,18 @@ def _pick_race_for_horse(
     candidates = []
 
     for race in races:
-        # Check start points requirement
+        # Loppstegen gäller AI-hästar också — annars fylls nybörjarlopp
+        # av meriterade hästar och skyddet blir meningslöst.
         if race.min_start_points > 0 and horse_points < race.min_start_points:
+            continue
+        max_pts = getattr(race, "max_start_points", None)
+        if max_pts is not None and horse_points > max_pts:
+            continue
+        max_earn = getattr(race, "max_earnings", None)
+        if max_earn is not None and (horse.total_earnings or 0) > max_earn:
+            continue
+        race_class = race.race_class.value if hasattr(race.race_class, "value") else str(race.race_class)
+        if race_class == "maiden" and (horse.total_wins or 0) > 0:
             continue
 
         # Check capacity
@@ -259,3 +273,109 @@ def _pick_race_for_horse(
     # Pick best scoring race
     candidates.sort(key=lambda x: x[1], reverse=True)
     return candidates[0][0]
+
+
+# ── AI-stallens personlighet (DEL E punkt 4-5) ──────────────────────
+STABLE_PERSONALITIES = ["aggressive", "balanced", "defensive", "unpredictable"]
+
+# Fel i 15 % av fallen — AI:n ska inte vara felfri
+MISTAKE_RATE = 0.15
+
+
+def _choose_tactics(stable, horse, race, session, rng) -> dict:
+    """Semi-intelligent taktik: stallets personlighet + bana + underlag,
+    med en felmarginal så AI-stall ibland gör samma misstag som spelare."""
+    personality = getattr(stable, "ai_personality", None) or "balanced"
+
+    # Position och tempo efter stallets läggning
+    if personality == "aggressive":
+        positioning = rng.choice([TacticPositioning.LEAD, TacticPositioning.LEAD,
+                                  TacticPositioning.OUTSIDE])
+        tempo = TacticTempo.OFFENSIVE
+        safety = TacticGallopSafety.RISKY
+    elif personality == "defensive":
+        positioning = rng.choice([TacticPositioning.SECOND, TacticPositioning.TRAILING,
+                                  TacticPositioning.BACK])
+        tempo = TacticTempo.CAUTIOUS
+        safety = TacticGallopSafety.SAFE
+    elif personality == "unpredictable":
+        positioning = rng.choice(list(TacticPositioning))
+        tempo = rng.choice(list(TacticTempo))
+        safety = rng.choice(list(TacticGallopSafety))
+    else:  # balanced
+        positioning = rng.choice([TacticPositioning.SECOND, TacticPositioning.SECOND,
+                                  TacticPositioning.LEAD, TacticPositioning.TRAILING])
+        tempo = TacticTempo.BALANCED
+        safety = TacticGallopSafety.NORMAL
+
+    # Hästens egen läggning drar åt sitt håll
+    if horse.personality_primary == PersonalityType.HOT and personality != "unpredictable":
+        positioning = TacticPositioning.LEAD
+    elif horse.personality_primary == PersonalityType.CALM and personality == "aggressive":
+        tempo = TacticTempo.BALANCED
+
+    # Spurttiming efter upploppets längd
+    stretch = getattr(session.track, "stretch_length", 200) if session and session.track else 200
+    if stretch >= 300:
+        sprint = TacticSprint.LATE_250M
+    elif stretch <= 150:
+        sprint = TacticSprint.EARLY_600M
+    else:
+        sprint = TacticSprint.NORMAL_400M
+
+    # Kurvstrategi: starka hästar vågar innerspår
+    power = (horse.speed + horse.endurance + horse.sprint_strength) / 3
+    curve = TacticCurve.INNER if power >= 65 else rng.choice(
+        [TacticCurve.MIDDLE, TacticCurve.MIDDLE, TacticCurve.OUTER]
+    )
+
+    # Skoval efter underlag och väder
+    surface = race.surface.value if hasattr(race.surface, "value") else str(race.surface or "dirt")
+    weather = session.weather.value if session and hasattr(session.weather, "value") else "clear"
+    if surface == "winter" or weather == "snow":
+        shoe = ShoeType.STUDS
+    elif weather in ("rain", "heavy_rain"):
+        shoe = ShoeType.GRIP
+    else:
+        shoe = rng.choice([ShoeType.NORMAL_STEEL, ShoeType.NORMAL_STEEL,
+                           ShoeType.LIGHT_ALUMINUM])
+
+    # Felmarginal: ibland glöms rätt sko på vinterbana
+    if rng.random() < MISTAKE_RATE:
+        shoe = rng.choice([ShoeType.NORMAL_STEEL, ShoeType.BAREFOOT,
+                           ShoeType.LIGHT_ALUMINUM])
+
+    whip = TacticWhip.AGGRESSIVE if personality == "aggressive" else TacticWhip.NORMAL
+
+    return {
+        "positioning": positioning,
+        "tempo": tempo,
+        "sprint_order": sprint,
+        "gallop_safety": safety,
+        "curve_strategy": curve,
+        "whip_usage": whip,
+        "shoe": shoe,
+    }
+
+
+# ── AI-stallens personligheter ──────────────────────────────────────
+async def ensure_stable_personalities(db: AsyncSession) -> int:
+    """Ge varje AI-stall en personlighet. Idempotent — körs varje vecka.
+
+    Personligheten avgör hur stallet kör: aggressive tar ledningen,
+    defensive sitter i rygg, unpredictable gör vad som helst.
+    """
+    result = await db.execute(
+        select(Stable).where(Stable.is_npc == True, Stable.ai_personality == None)
+    )
+    stables = result.scalars().all()
+    assigned = 0
+    for stable in stables:
+        # Deterministiskt ur stall-id så samma stall alltid kör likadant
+        idx = int(str(stable.id).replace("-", "")[:8], 16) % len(STABLE_PERSONALITIES)
+        stable.ai_personality = STABLE_PERSONALITIES[idx]
+        assigned += 1
+    if assigned:
+        await db.flush()
+        logger.info(f"Tilldelade personlighet till {assigned} AI-stall")
+    return assigned

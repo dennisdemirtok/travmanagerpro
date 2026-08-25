@@ -71,6 +71,8 @@ class Race(Base):
     max_entries: Mapped[int] = mapped_column(Integer, default=12)
     handicap_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     min_start_points: Mapped[int] = mapped_column(Integer, default=0)
+    max_start_points: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_earnings: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     is_finished: Mapped[bool] = mapped_column(Boolean, default=False)
     seed: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

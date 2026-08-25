@@ -16,24 +16,40 @@ from app.data.real_horses import REAL_HORSES, map_real_to_game_stats, GENDER_MAP
 # Season length in game weeks (1 season = 1 horse year)
 SEASON_LENGTH_WEEKS = 10
 
-# Weekly race template: (game_day, start_time_swedish, [(name, class, div_level, distance, start_method, prize_pool, entry_fee, min_start_points)])
-# game_day 3 = Wednesday, game_day 6 = Saturday (real weekdays)
-# Times are in Swedish time (CET/CEST), converted to UTC when scheduling
+# Loppstege (sprint 5, DEL E). Varje rad:
+# (namn, klass, divisionsnivå, distans, startmetod, prispott, anmälningsavgift,
+#  min startpoäng, max startpoäng, max intjänat i öre)
+# Taket gör att en nybörjarhäst ALDRIG hamnar i ett elitlopp — och att en
+# meriterad häst inte kan slumma i provloppen.
+# game_day 3 = onsdag, game_day 6 = lördag
 WEEKLY_RACE_TEMPLATE = [
-    (3, "19:00", [  # Wednesday evening session (19:00 Swedish time)
-        ("Vardagslopp", RaceClass.EVERYDAY, 6, 2140, RaceStartMethod.AUTO, 5_000_000, 100_000, 0),
-        ("Ungdomslopp", RaceClass.AGE_3, None, 1640, RaceStartMethod.AUTO, 4_000_000, 80_000, 0),
-        ("Bronsdivisionen", RaceClass.BRONZE, 5, 2140, RaceStartMethod.VOLT, 10_000_000, 200_000, 10),
-        ("Vardagssprint", RaceClass.EVERYDAY, 6, 1640, RaceStartMethod.AUTO, 4_000_000, 100_000, 0),
+    (3, "19:00", [
+        ("Provlopp", RaceClass.QUALIFIER, 6, 1640, RaceStartMethod.AUTO,
+         2_000_000, 0, 0, 5, 500_000),
+        ("Maidenslopp", RaceClass.MAIDEN, 6, 2140, RaceStartMethod.AUTO,
+         3_000_000, 50_000, 0, 15, 3_000_000),
+        ("Vardagslopp", RaceClass.EVERYDAY, 6, 2140, RaceStartMethod.AUTO,
+         5_000_000, 100_000, 0, 30, None),
+        ("Bronsdivisionen", RaceClass.BRONZE, 5, 2140, RaceStartMethod.VOLT,
+         10_000_000, 200_000, 10, 60, None),
     ]),
-    (6, "14:00", [  # Saturday afternoon V75 session (14:00 Swedish time)
-        ("Silverdivisionen", RaceClass.SILVER, 3, 2640, RaceStartMethod.VOLT, 20_000_000, 500_000, 30),
-        ("V75-1", RaceClass.BRONZE, 4, 2140, RaceStartMethod.VOLT, 15_000_000, 300_000, 15),
-        ("V75-2 Stayerlopp", RaceClass.BRONZE, 5, 2640, RaceStartMethod.VOLT, 8_000_000, 200_000, 10),
-        ("Bronsdivisionen B", RaceClass.BRONZE, 4, 2140, RaceStartMethod.VOLT, 10_000_000, 200_000, 5),
-        ("Gulddivisionen", RaceClass.GOLD, 2, 2140, RaceStartMethod.VOLT, 30_000_000, 800_000, 50),
-        ("Ungsprint", RaceClass.AGE_2, None, 1640, RaceStartMethod.AUTO, 6_000_000, 100_000, 0),
-        ("Kvällssprint", RaceClass.EVERYDAY, 6, 1640, RaceStartMethod.AUTO, 4_000_000, 100_000, 0),
+    (6, "14:00", [
+        ("Maidenslopp B", RaceClass.MAIDEN, 6, 1640, RaceStartMethod.AUTO,
+         3_000_000, 50_000, 0, 15, 3_000_000),
+        ("Vardagssprint", RaceClass.EVERYDAY, 6, 1640, RaceStartMethod.AUTO,
+         4_000_000, 100_000, 0, 30, None),
+        ("Ungsprint", RaceClass.AGE_2, None, 1640, RaceStartMethod.AUTO,
+         6_000_000, 100_000, 0, 25, None),
+        ("Bronsdivisionen B", RaceClass.BRONZE, 4, 2140, RaceStartMethod.VOLT,
+         10_000_000, 200_000, 5, 60, None),
+        ("V75-2 Stayerlopp", RaceClass.BRONZE, 5, 2640, RaceStartMethod.VOLT,
+         8_000_000, 200_000, 10, 70, None),
+        ("V75-1", RaceClass.BRONZE, 4, 2140, RaceStartMethod.VOLT,
+         15_000_000, 300_000, 15, 80, None),
+        ("Silverdivisionen", RaceClass.SILVER, 3, 2640, RaceStartMethod.VOLT,
+         20_000_000, 500_000, 30, 120, None),
+        ("Gulddivisionen", RaceClass.GOLD, 2, 2140, RaceStartMethod.VOLT,
+         30_000_000, 800_000, 50, None, None),
     ]),
 ]
 
@@ -199,7 +215,7 @@ async def generate_races_for_week(db: AsyncSession, target_game_week: int):
         await db.flush()
 
         for race_num, cfg in enumerate(race_configs, 1):
-            name, rc, div, dist, sm, prize, fee, min_pts = cfg
+            name, rc, div, dist, sm, prize, fee, min_pts, max_pts, max_earn = cfg
             db.add(Race(
                 session_id=session.id,
                 race_number=race_num,
@@ -214,6 +230,8 @@ async def generate_races_for_week(db: AsyncSession, target_game_week: int):
                 min_entries=6,
                 max_entries=12,
                 min_start_points=min_pts,
+                max_start_points=max_pts,
+                max_earnings=max_earn,
             ))
 
     await db.flush()

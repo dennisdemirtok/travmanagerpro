@@ -40,6 +40,9 @@ class Stable(Base):
     restarts_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     last_stable_round_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_serious_event_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ai_personality: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    difficulty_tier: Mapped[str] = mapped_column(String(10), default="normal", server_default="normal")
+    player_starts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     user = relationship("User", back_populates="stable")
     horses = relationship("Horse", back_populates="stable", foreign_keys="Horse.stable_id", passive_deletes=True)

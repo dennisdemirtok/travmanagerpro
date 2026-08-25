@@ -2045,47 +2045,69 @@ class NPCGenerator:
             warmup=warmup,
         )
 
+    # Svårighetsgrad styr hur vasst fältet blir (DEL E punkt 2)
+    DIFFICULTY_MODS = {
+        "easy": -4.0,
+        "normal": 0.0,
+        "hard": 4.0,
+    }
+
+    # Nybörjarskydd: de fem första loppen dämpas motståndet (DEL E punkt 3)
+    NEWBIE_PROTECTION = [-0.18, -0.15, -0.12, -0.09, -0.06]
+
     def fill_race_field(
         self,
         player_entries: list[RaceEntry],
         division_level: int,
         min_field: int = 8,
         max_field: int = 12,
+        difficulty: str = "normal",
+        player_starts: int = 999,
     ) -> list[RaceEntry]:
-        """Fill race field with NPCs matched to player horse ratings."""
+        """Fyll fältet med AI-hästar matchade mot spelarens nivå.
+
+        difficulty: 'easy' | 'normal' | 'hard' — härleds ur spelarens senaste
+        tio resultat. Vinner man ofta höjs motståndet.
+        player_starts: antal starter stallet gjort. Under fem gäller nybörjarskydd.
+        """
         field = list(player_entries)
 
-        # Calculate target field size
-        target_size = self.rng.randint(min_field, max_field)
+        # Fältstorlek 10-12 enligt spec
+        target_size = self.rng.randint(max(min_field, 10), max_field)
         npc_needed = max(0, target_size - len(field))
-        npc_needed = max(npc_needed, 2)  # Always at least 2 NPC
+        npc_needed = max(npc_needed, 2)
         npc_needed = min(npc_needed, max_field - len(field))
         if npc_needed <= 0:
             return field
 
-        # Calculate player rating for smart matching
         player_rating = self._calculate_player_rating(player_entries)
-
-        # If no player entries, use division-based fallback
-        # Division 1 = elite (82), Division 6 = beginner (42)
         if not player_entries:
             player_rating = 90 - (division_level * 8)
 
-        # Role distribution: contender/midfield/backmarker
-        # Normal difficulty: 20% contender, 55% midfield, 25% backmarker
-        roles = []
-        num_contenders = max(1, round(npc_needed * 0.20))
-        num_backmarkers = max(1, round(npc_needed * 0.25))
-        num_midfield = npc_needed - num_contenders - num_backmarkers
+        # Svårighetsgrad
+        player_rating += self.DIFFICULTY_MODS.get(difficulty, 0.0)
 
-        roles.extend(["contender"] * num_contenders)
-        roles.extend(["midfield"] * num_midfield)
-        roles.extend(["backmarker"] * num_backmarkers)
+        # Nybörjarskydd på contenders
+        contender_scale = 1.0
+        if player_starts < len(self.NEWBIE_PROTECTION):
+            contender_scale = 1.0 + self.NEWBIE_PROTECTION[player_starts]
+
+        # Sammansättning enligt spec: 1-2 contenders, 4-6 midfield, 2-4 backmarkers
+        num_contenders = min(2, max(1, round(npc_needed * 0.18)))
+        num_backmarkers = min(4, max(2, round(npc_needed * 0.28)))
+        num_midfield = max(0, npc_needed - num_contenders - num_backmarkers)
+
+        roles = (["contender"] * num_contenders
+                 + ["midfield"] * num_midfield
+                 + ["backmarker"] * num_backmarkers)
         self.rng.shuffle(roles)
 
         for role in roles:
-            horse = self.generate_horse(player_rating, role)
-            driver = self.generate_driver(player_rating)
+            rating_for_role = player_rating
+            if role == "contender":
+                rating_for_role *= contender_scale
+            horse = self.generate_horse(rating_for_role, role)
+            driver = self.generate_driver(rating_for_role)
             tactics = self._generate_smart_tactics(horse, role)
             shoe = self.rng.choice([ShoeType.NORMAL_STEEL, ShoeType.LIGHT_ALUMINUM])
             compat = int(clamp(50 + self.rng.gauss(0, 15), 25, 90))
