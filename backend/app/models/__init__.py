@@ -13,3 +13,4 @@ from app.models.caretaker import Caretaker, CaretakerAssignment, CaretakerScoutR
 from app.models.hidden_properties import HorseHiddenProperties  # noqa: F401
 from app.models.observation import HorseObservation, HorseNote, HorseTag  # noqa: F401
 from app.models.season_goal import SeasonGoal  # noqa: E402,F401
+from app.models.cosmetic import CosmeticUnlock  # noqa: E402,F401

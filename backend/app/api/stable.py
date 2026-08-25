@@ -180,12 +180,22 @@ async def get_box_info(
     horse_count = horse_count_result.scalar() or 0
 
     current_level = stable.box_upgrade_level or 0
-    max_horses = stable.max_horses or 3
     next_cost = BOX_UPGRADE_COSTS[current_level] if current_level < len(BOX_UPGRADE_COSTS) else None
+
+    # Premium ger sex extra boxar ovanpå köpta uppgraderingar
+    from app.services import premium_service
+    from app.models.game_state import GameState
+    gs = (await db.execute(select(GameState).where(GameState.id == 1))).scalar_one_or_none()
+    week = gs.current_game_week if gs else 1
+    base_max = stable.max_horses or 3
+    max_horses = premium_service.max_boxes(stable, week)
 
     return {
         "current_horses": horse_count,
         "max_horses": max_horses,
+        "base_max_horses": base_max,
+        "premium_bonus": max_horses - base_max,
+        "is_premium": premium_service.is_premium(stable, week),
         "upgrade_level": current_level,
         "max_upgrade_level": len(BOX_UPGRADE_COSTS),
         "next_upgrade_cost": next_cost,

@@ -46,6 +46,15 @@ class Stable(Base):
     season_goals_generated: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_season_summary: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Premium och kosmetik (sprint 9)
+    premium_until_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stable_color: Mapped[str] = mapped_column(String(9), default="#D4A853", server_default="#D4A853")
+    stable_color_secondary: Mapped[str] = mapped_column(String(9), default="#0B0E14", server_default="#0B0E14")
+    sulky_design: Mapped[str] = mapped_column(String(30), default="classic", server_default="classic")
+    banner: Mapped[str] = mapped_column(String(30), default="default", server_default="default")
+    season_pass_season: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    season_pass_points: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
     user = relationship("User", back_populates="stable")
     horses = relationship("Horse", back_populates="stable", foreign_keys="Horse.stable_id", passive_deletes=True)
     driver_contracts = relationship("DriverContract", back_populates="stable")

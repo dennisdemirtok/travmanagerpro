@@ -29,6 +29,7 @@ interface Finisher {
   is_npc: boolean;
   km_time: string;
   prize_money: number;
+  stable_color?: string;
 }
 
 interface RaceEventItem {
@@ -123,20 +124,25 @@ export function RaceReplay({
     [finishers]
   );
 
-  // Färg och spårnummer per häst — stabilt över hela loppet
+  // Färg och spårnummer per häst — stabilt över hela loppet.
+  // Spelarstall med egen stallfärg (kosmetik) använder den i banan.
   const horseMeta = useMemo(() => {
     const map = new Map<string, { color: string; post: number }>();
+    const stableColors = new Map<string, string>();
+    finishers.forEach((f: any) => {
+      if (f.stable_color) stableColors.set(f.horse_id, f.stable_color);
+    });
     if (snapshots.length > 0) {
       const first = [...snapshots[0].p].sort((a, b) => (a.post ?? a.r) - (b.post ?? b.r));
       first.forEach((p, i) => {
         map.set(p.id, {
-          color: HORSE_COLORS[i % HORSE_COLORS.length],
+          color: stableColors.get(p.id) || HORSE_COLORS[i % HORSE_COLORS.length],
           post: p.post || i + 1,
         });
       });
     }
     return map;
-  }, [snapshots]);
+  }, [snapshots, finishers]);
 
   const currentSnap = snapshots[currentFrame];
   const currentMeters = currentSnap

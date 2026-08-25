@@ -980,6 +980,15 @@ async def get_race_result(db: AsyncSession, race_id):
     if not race or not race.is_finished:
         return None
 
+    # Stallfärger — kosmetiken ska synas i banan
+    stable_ids = {e.stable_id for e in race.entries if e.stable_id}
+    stable_colors = {}
+    if stable_ids:
+        for st in (await db.execute(
+            select(Stable).where(Stable.id.in_(stable_ids))
+        )).scalars().all():
+            stable_colors[st.id] = getattr(st, "stable_color", None)
+
     finishers = []
     disqualified = []
     for e in sorted(race.entries, key=lambda x: x.finish_position or 999):
@@ -1003,6 +1012,7 @@ async def get_race_result(db: AsyncSession, race_id):
                 "compatibility": e.compatibility_score or 50,
                 "is_npc": False,
                 "sector_times": e.sector_times or [],
+                "stable_color": stable_colors.get(e.stable_id),
             })
 
     # Merge NPC results from simulation_data

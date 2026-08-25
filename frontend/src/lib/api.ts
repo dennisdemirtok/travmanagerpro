@@ -99,6 +99,16 @@ export const api = {
   // Balansverktyg (sprint 8, dev)
   runBalanceTest: (opts: { runs: number; stretch_class: string; seed: number }) =>
     apiFetch<any>(`/balance/simulate?runs=${opts.runs}&stretch_class=${opts.stretch_class}&seed=${opts.seed}`),
+
+  // Premium, kosmetik och säsongspass (sprint 9)
+  getPremiumStatus: () => apiFetch<any>("/premium/status"),
+  equipCosmetic: (itemKey: string) =>
+    apiFetch<any>("/premium/cosmetics/equip", { method: "POST", body: JSON.stringify({ item_key: itemKey }) }),
+  getSeasonPass: () => apiFetch<any>("/premium/season-pass"),
+  devGrantPremium: () => apiFetch<any>("/premium/dev/grant-premium", { method: "POST" }),
+  devGrantCosmetic: (itemKey: string) =>
+    apiFetch<any>("/premium/dev/grant-cosmetic", { method: "POST", body: JSON.stringify({ item_key: itemKey }) }),
+  devGrantSeasonPass: () => apiFetch<any>("/premium/dev/grant-season-pass", { method: "POST" }),
   nextDay: () => apiFetch<any>("/game/next-day", { method: "POST" }),
   takeLoan: (amount: number) =>
     apiFetch<any>("/finances/loan", { method: "POST", body: JSON.stringify({ amount }) }),
