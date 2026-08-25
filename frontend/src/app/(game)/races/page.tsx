@@ -177,11 +177,11 @@ export default function RacesPage() {
       {/* Header with tabs */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-bold text-gray-200">Loppschema</h2>
-        <div className="flex gap-1 bg-trav-dark-2 rounded-lg p-0.5">
+        <div className="flex gap-1 bg-trav-active border border-trav-border rounded-lg p-0.5">
           <button
             onClick={() => setTab("anmalan")}
             className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
-              tab === "anmalan" ? "bg-trav-gold text-black" : "text-gray-400 hover:text-white"
+              tab === "anmalan" ? "bg-trav-gold text-trav-bg" : "text-gray-400 hover:text-white"
             }`}
           >
             Anmälan ({upcomingSessions.length})
@@ -189,7 +189,7 @@ export default function RacesPage() {
           <button
             onClick={() => setTab("resultat")}
             className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
-              tab === "resultat" ? "bg-trav-gold text-black" : "text-gray-400 hover:text-white"
+              tab === "resultat" ? "bg-trav-gold text-trav-bg" : "text-gray-400 hover:text-white"
             }`}
           >
             Resultat ({finishedSessions.length})

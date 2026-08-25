@@ -99,11 +99,11 @@ export default function CaretakersPage() {
       <h2 className="text-xl font-bold text-gray-200">Skötare</h2>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-trav-dark-2 rounded-lg p-0.5 w-fit">
+      <div className="flex gap-1 bg-trav-active border border-trav-border rounded-lg p-0.5 w-fit">
         <button
           onClick={() => setTab("market")}
           className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
-            tab === "market" ? "bg-trav-gold text-black" : "text-gray-400 hover:text-white"
+            tab === "market" ? "bg-trav-gold text-trav-bg" : "text-gray-400 hover:text-white"
           }`}
         >
           Skötarmarknad ({available.length})
@@ -111,7 +111,7 @@ export default function CaretakersPage() {
         <button
           onClick={() => setTab("assignments")}
           className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
-            tab === "assignments" ? "bg-trav-gold text-black" : "text-gray-400 hover:text-white"
+            tab === "assignments" ? "bg-trav-gold text-trav-bg" : "text-gray-400 hover:text-white"
           }`}
         >
           Mina skötare ({assignments.length})

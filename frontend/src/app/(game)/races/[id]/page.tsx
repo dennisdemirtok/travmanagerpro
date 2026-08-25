@@ -31,6 +31,18 @@ const START_LABELS: Record<string, string> = {
   auto: "Autostart",
 };
 
+const GRADE_COLORS: Record<string, string> = {
+  A: "#4ADE80", B: "#A3E635", C: "#E9C46A", D: "#FB923C", F: "#EF4444",
+};
+
+const VERDICT_COLORS: Record<string, string> = {
+  good: "#4ADE80", ok: "#9AA0AE", bad: "#EF4444",
+};
+
+const VERDICT_MARKS: Record<string, string> = {
+  good: "✓", ok: "~", bad: "✕",
+};
+
 const PHASE_ICONS: Record<string, string> = {
   opening: "🏁",
   middle: "🔄",
@@ -63,6 +75,9 @@ export default function RaceResultPage() {
   const disqualified = data.disqualified || [];
   const allEvents = data.events || [];
   const snapshots = data.snapshots || [];
+  const commentary = data.commentary || [];
+  const tactical = data.tactical || {};
+  const tacticalList: any[] = Object.entries(tactical).map(([hid, rev]: any) => ({ hid, ...rev }));
   const hasReplay = snapshots.length > 0;
 
   // Separate narrative events from technical events
@@ -120,12 +135,12 @@ export default function RaceResultPage() {
         </div>
 
         {hasReplay && (
-          <div className="flex gap-1 bg-trav-dark-2 rounded-lg p-0.5">
+          <div className="flex gap-1 bg-trav-active border border-trav-border rounded-lg p-0.5">
             <button
               onClick={() => setView("result")}
               className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
                 view === "result"
-                  ? "bg-trav-gold text-black"
+                  ? "bg-trav-gold text-trav-bg"
                   : "text-gray-400 hover:text-white"
               }`}
             >
@@ -135,7 +150,7 @@ export default function RaceResultPage() {
               onClick={() => setView("replay")}
               className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
                 view === "replay"
-                  ? "bg-trav-gold text-black"
+                  ? "bg-trav-gold text-trav-bg"
                   : "text-gray-400 hover:text-white"
               }`}
             >
@@ -153,6 +168,8 @@ export default function RaceResultPage() {
             finishers={finishers}
             distance={data.distance}
             raceName={data.race_name}
+            events={technicalEvents}
+            commentary={commentary}
           />
         </Card>
       )}
@@ -160,6 +177,74 @@ export default function RaceResultPage() {
       {/* Results View */}
       {view === "result" && (
         <>
+          {/* Taktiskt facit — varför gick det som det gick? */}
+          {tacticalList.length > 0 && (
+            <div className="space-y-3">
+              {tacticalList.map((rev) => (
+                <Card key={rev.hid}>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-200">
+                        Taktiskt facit — {rev.horse_name}
+                      </h3>
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        Placering {rev.finish_position || "—"}/{rev.field_size} ·
+                        {" "}energi i mål {rev.energy_at_finish} ·
+                        {" "}instängd i {rev.boxed_steps} lägen ·
+                        {" "}{rev.gallop_incidents} galopp
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div
+                        className="text-2xl font-bold leading-none"
+                        style={{ color: GRADE_COLORS[rev.grade] || "#9AA0AE" }}
+                      >
+                        {rev.grade}
+                      </div>
+                      <div className="text-[10px] text-gray-500 tabular-nums mt-0.5">
+                        {rev.total_points}/{rev.max_points} p
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-400 mb-3">{rev.grade_text}</p>
+                  <div className="space-y-1.5">
+                    {rev.items.map((it: any, i: number) => (
+                      <div
+                        key={i}
+                        className="flex items-start gap-2.5 py-1.5 border-b border-trav-border/40 last:border-0"
+                      >
+                        <span
+                          className="text-xs font-bold w-5 shrink-0 pt-0.5"
+                          style={{ color: VERDICT_COLORS[it.verdict] }}
+                        >
+                          {VERDICT_MARKS[it.verdict]}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            <span className="text-xs text-gray-500">{it.label}:</span>
+                            <span className="text-xs font-semibold text-gray-200">{it.value}</span>
+                            <span
+                              className="text-[10px] tabular-nums"
+                              style={{ color: VERDICT_COLORS[it.verdict] }}
+                            >
+                              {it.points > 0 ? "+" : ""}{it.points}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-400 mt-0.5">{it.comment}</p>
+                          {it.optimal && (
+                            <p className="text-[11px] text-trav-gold/80 mt-0.5">
+                              Bättre val: {it.optimal}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+
           {/* Results Table */}
           <Card>
             <table className="w-full text-sm">

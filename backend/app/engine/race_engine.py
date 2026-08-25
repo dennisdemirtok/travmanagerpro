@@ -270,6 +270,9 @@ class PositionSnapshot:
     is_galloping: bool
     is_disqualified: bool
     rank: int = 0
+    lane: int = 1      # 0 = innerspår, 1 = mitten, 2 = ytterspår
+    post: int = 0      # spårnummer i programmet
+    boxed_in: bool = False
 
 
 @dataclass
@@ -1609,10 +1612,48 @@ class RaceEngine:
         if len(sectors) < sector_num:
             sectors.append({"sector": sector_num, "distance": meters, "speed": entry.current_speed, "energy": entry.energy})
 
+    @staticmethod
+    def _visual_lane(entry: "RaceEntry", ahead_close: bool) -> int:
+        """Vilket spår hästen syns i: 0 = inner, 1 = mitten, 2 = ytter.
+
+        Bygger på kuskens faktiska val (kurvstrategi + position) så att
+        spelaren SER sin taktik i banan i stället för att prickar staplas.
+        """
+        if entry.is_disqualified:
+            return 2
+        if entry.is_galloping:
+            return 2  # galopperande häst styrs ut ur fältet
+
+        pos = entry.tactics.positioning
+        if pos == Positioning.LEAD:
+            return 0                      # ledaren håller innerspåret
+        if pos == Positioning.OUTSIDE:
+            return 2                      # utvändigt om ledaren
+        if pos == Positioning.BACK:
+            return 1
+
+        # SECOND/TRAILING ligger i rygg — inner om det finns lucka,
+        # annars ut i banan för att inte bli instängd.
+        base = {
+            CurveStrategy.INNER: 0,
+            CurveStrategy.MIDDLE: 1,
+            CurveStrategy.OUTER: 2,
+        }[entry.tactics.curve_strategy]
+        if base == 0 and ahead_close:
+            return 1
+        return base
+
     def _take_snapshot(self, entries: list[RaceEntry], meters: int) -> StepSnapshot:
         active = sorted(entries, key=lambda e: e.position_meters, reverse=True)
         positions = []
         for rank, e in enumerate(active):
+            # Instängd: någon ligger tätt framför i samma inneposition
+            ahead_close = any(
+                0 < (o.position_meters - e.position_meters) < 6.0
+                and not o.is_disqualified
+                for o in active
+            )
+            lane = self._visual_lane(e, ahead_close)
             positions.append(PositionSnapshot(
                 horse_id=e.horse.id,
                 horse_name=e.horse.name,
@@ -1622,6 +1663,9 @@ class RaceEngine:
                 is_galloping=e.is_galloping,
                 is_disqualified=e.is_disqualified,
                 rank=rank + 1,
+                lane=lane,
+                post=e.post_position,
+                boxed_in=bool(ahead_close and lane == 0 and rank > 0),
             ))
         return StepSnapshot(distance=meters, positions=positions)
 

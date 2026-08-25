@@ -27,6 +27,8 @@ from app.models.enums import (
 )
 from app.services.horse_service import _horse_to_engine_stats, _driver_to_engine_stats
 from app.services import finance_service, event_service
+from app.engine.commentary import build_commentary
+from app.engine.tactical_review import review_entry
 from app.services.game_init_service import calculate_game_time
 
 
@@ -129,6 +131,7 @@ async def get_race_schedule(db: AsyncSession, stable_id=None):
                 "division_level": r.division_level,
                 "surface": r.surface.value if r.surface else "dirt",
                 "min_start_points": r.min_start_points,
+                "is_finished": r.is_finished,
             })
 
         # Calculate entry deadline
@@ -220,6 +223,23 @@ async def enter_race(db: AsyncSession, race_id, horse_id, driver_id, stable_id, 
     existing = [e for e in race.entries if e.horse_id == horse_id and not e.is_scratched]
     if existing:
         return {"error": "Hästen är redan anmäld till detta lopp"}
+
+    # Validera taktikvärden innan de når databasen — annars kastar
+    # Postgres enum-fel som blir ett obegripligt 500 för spelaren.
+    TACTIC_FIELDS = {
+        "positioning": TacticPositioning, "tempo": TacticTempo,
+        "sprint_order": TacticSprint, "gallop_safety": TacticGallopSafety,
+        "curve_strategy": TacticCurve, "whip_usage": TacticWhip,
+    }
+    for field, enum_cls in TACTIC_FIELDS.items():
+        value = tactics.get(field)
+        if value in (None, ""):
+            continue
+        try:
+            enum_cls(value)
+        except ValueError:
+            allowed = ", ".join(e.value for e in enum_cls)
+            return {"error": f"Ogiltigt värde för {field}: \"{value}\". Tillåtna: {allowed}"}
 
     # Kusken behöver INTE vara kontrakterad. Saknas kontrakt körs hen som
     # frilanskusk: engångsavgift per lopp i stället för fast veckolön,
@@ -587,6 +607,9 @@ async def simulate_race_session(db: AsyncSession, session_id):
                         "g": p.is_galloping,
                         "dq": p.is_disqualified,
                         "r": p.rank,
+                        "ln": getattr(p, "lane", 1),
+                        "post": getattr(p, "post", 0),
+                        "box": getattr(p, "boxed_in", False),
                     }
                     for p in snap.positions
                 ],
@@ -594,7 +617,41 @@ async def simulate_race_session(db: AsyncSession, session_id):
             for snap in sim_result.snapshots
         ] if game_week >= 1 else []  # Skip snapshots for historical backlog
 
+        # ── Kommentator + taktiskt facit ───────────────────────────
+        player_ids = {str(hid) for hid in entry_map.keys()}
+        commentary = build_commentary(
+            distance=race.distance,
+            snapshots=sim_result.snapshots,
+            events=sim_result.events,
+            finishers=[
+                {
+                    "horse_id": f.horse_id, "horse_name": f.horse_name,
+                    "finish_position": f.finish_position,
+                    "km_time_display": f.km_time_display,
+                }
+                for f in sim_result.finishers
+            ],
+            disqualified=[
+                {"horse_id": d.horse_id, "horse_name": d.horse_name}
+                for d in sim_result.disqualified
+            ],
+            player_horse_ids=player_ids,
+            race_name=race.race_name,
+            track_name=session.track.name if session.track else "",
+            start_method=sm_val,
+            seed=getattr(sim_result, "seed", 0) or 0,
+            winner_km_time=(
+                sim_result.finishers[0].km_time_seconds if sim_result.finishers else None
+            ),
+        )
+
+        tactical = _build_tactical_reviews(
+            sim_result, entry_map, race, stretch_class,
+        )
+
         race.simulation_data = {
+            "commentary": commentary,
+            "tactical": tactical,
             "events": [
                 {
                     "type": ev.event_type,
@@ -927,6 +984,9 @@ async def get_race_result(db: AsyncSession, race_id):
         "disqualified": disqualified,
         "events": race.simulation_data.get("events", []) if race.simulation_data else [],
         "snapshots": race.simulation_data.get("snapshots", []) if race.simulation_data else [],
+        "commentary": race.simulation_data.get("commentary", []) if race.simulation_data else [],
+        "tactical": race.simulation_data.get("tactical", {}) if race.simulation_data else {},
+        "stretch_length": track.stretch_length if track and hasattr(track, "stretch_length") else None,
     }
 
 
@@ -993,3 +1053,61 @@ async def withdraw_entry(db: AsyncSession, entry_id, stable_id):
 
     await db.flush()
     return {"success": True, "refund": refund}
+
+
+def _enum_val(value, default=""):
+    return value.value if hasattr(value, "value") else (str(value) if value is not None else default)
+
+
+def _build_tactical_reviews(sim_result, entry_map, race, stretch_class: str) -> dict:
+    """Taktiskt facit per spelarhäst — vad var rätt, vad var fel, vad hade varit bäst."""
+    snapshots = sim_result.snapshots or []
+    if not snapshots:
+        return {}
+
+    field_size = len(snapshots[0].positions) if snapshots else len(entry_map)
+
+    # Instängda steg och rankförändring per häst
+    boxed_counts: dict[str, int] = {}
+    first_rank: dict[str, int] = {}
+    last_rank: dict[str, int] = {}
+    for snap in snapshots:
+        for pos in snap.positions:
+            hid = str(pos.horse_id)
+            if getattr(pos, "boxed_in", False):
+                boxed_counts[hid] = boxed_counts.get(hid, 0) + 1
+            first_rank.setdefault(hid, pos.rank)
+            last_rank[hid] = pos.rank
+
+    results = {str(f.horse_id): f for f in sim_result.finishers}
+    for d in sim_result.disqualified:
+        results.setdefault(str(d.horse_id), d)
+
+    reviews: dict[str, dict] = {}
+    for hid, db_entry in entry_map.items():
+        hid = str(hid)
+        outcome = results.get(hid)
+        if outcome is None:
+            continue
+        horse = db_entry.horse
+        review = review_entry({
+            "positioning": _enum_val(db_entry.positioning, "second"),
+            "tempo": _enum_val(db_entry.tempo, "balanced"),
+            "sprint_order": _enum_val(getattr(db_entry, "sprint_order", None), "normal_400m"),
+            "curve_strategy": _enum_val(getattr(db_entry, "curve_strategy", None), "middle"),
+            "gallop_safety": _enum_val(getattr(db_entry, "gallop_safety", None), "normal"),
+            "finish_position": outcome.finish_position,
+            "field_size": field_size,
+            "energy_at_finish": outcome.energy_at_finish,
+            "gallop_incidents": outcome.gallop_incidents,
+            "boxed_steps": boxed_counts.get(hid, 0),
+            "stretch_class": stretch_class,
+            "endurance": horse.endurance,
+            "sprint_strength": horse.sprint_strength,
+            "start_ability": horse.start_ability,
+            "rank_gained": first_rank.get(hid, 0) - last_rank.get(hid, 0),
+        })
+        review["horse_name"] = horse.name
+        reviews[hid] = review
+
+    return reviews
