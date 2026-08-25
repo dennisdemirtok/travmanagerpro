@@ -98,6 +98,16 @@ class Horse(Base):
     training_locked_until: Mapped[int | None] = mapped_column(Integer, nullable=True)
     training_last_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # Dagsloop (sprint 3)
+    daily_training: Mapped[str] = mapped_column(String(20), default="light", server_default="light")
+    hard_training_streak: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_training_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    form_window_until_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    form_window_bonus: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    equipment_damaged: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    stat_gain_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stat_gain_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
     # Shoeing
     current_shoe: Mapped[ShoeType] = mapped_column(PgEnum(ShoeType, "shoe_type"), default=ShoeType.NORMAL_STEEL)
     shoe_durability: Mapped[int] = mapped_column(Integer, default=6)

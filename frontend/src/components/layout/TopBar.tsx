@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
@@ -12,12 +12,24 @@ const DAY_NAMES = ["Måndag", "Tisdag", "Onsdag", "Torsdag", "Fredag", "Lördag"
 export function TopBar() {
   const { username, logout } = useAuthStore();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [clock, setClock] = useState("");
 
   const { data: gameState } = useQuery({
     queryKey: ["gameState"],
     queryFn: api.getGameState,
     refetchInterval: 60000,
+  });
+
+  const { data: timeMode } = useQuery({
+    queryKey: ["timeMode"],
+    queryFn: api.getTimeMode,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const nextDayMutation = useMutation({
+    mutationFn: api.nextDay,
+    onSuccess: () => queryClient.invalidateQueries(),
   });
 
   const { data: finances } = useQuery({
@@ -69,6 +81,20 @@ export function TopBar() {
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
           <span className="text-sm text-gray-400 tabular-nums font-medium">{clock}</span>
         </div>
+
+        {timeMode?.manual && (
+          <>
+            <div className="w-px h-4 bg-trav-border" />
+            <button
+              onClick={() => nextDayMutation.mutate()}
+              disabled={nextDayMutation.isPending}
+              title="Stega fram en speldag"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-trav-gold/10 border border-trav-gold/25 text-trav-gold text-xs font-semibold hover:bg-trav-gold/20 transition-colors disabled:opacity-50"
+            >
+              {nextDayMutation.isPending ? "Går vidare…" : "Nästa dag →"}
+            </button>
+          </>
+        )}
       </div>
 
       <div className="flex items-center gap-3">

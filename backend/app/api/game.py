@@ -25,6 +25,43 @@ async def init_game(db: AsyncSession = Depends(get_db)):
     return {"status": "ok", "game_week": gs.current_game_week}
 
 
+@router.post("/next-day")
+async def next_day(db: AsyncSession = Depends(get_db)):
+    """Stega fram en speldag. Endast i manuellt tidsläge (early access).
+
+    I 'realtime' går klockan av sig själv och knappen är avstängd.
+    """
+    from app.core.config import settings
+
+    if settings.TIME_MODE != "manual":
+        raise HTTPException(
+            status_code=400,
+            detail="Tiden går i realtid — nästa dag kommer av sig själv.",
+        )
+
+    result = await game_init_service.dev_advance_time(db, hours=24)
+    if not result:
+        raise HTTPException(status_code=404, detail="Speldata inte initierad")
+
+    # Kör spelloopen direkt så lopp, kostnader och återhämtning hinner med
+    await race_ticker_service.tick_races(db)
+    await db.commit()
+
+    state = await game_init_service.get_game_state(db)
+    return {
+        "status": "ok",
+        "game_week": result["new_game_week"],
+        "game_day": result["new_game_day"],
+        "state": state,
+    }
+
+
+@router.get("/time-mode")
+async def time_mode():
+    from app.core.config import settings
+    return {"time_mode": settings.TIME_MODE, "manual": settings.TIME_MODE == "manual"}
+
+
 @router.post("/dev/advance")
 async def dev_advance(
     hours: int = Query(default=12, description="Hours to advance (12 = 1 game day)"),

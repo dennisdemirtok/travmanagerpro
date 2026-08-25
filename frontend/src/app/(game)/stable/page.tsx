@@ -37,6 +37,18 @@ export default function StablePage() {
   const { data: allTracks } = useQuery({ queryKey: ["tracks"], queryFn: api.getTracks });
   const { data: boxInfo } = useQuery({ queryKey: ["box-info"], queryFn: api.getBoxInfo });
   const router = useRouter();
+
+  const { data: trainingOptions } = useQuery({
+    queryKey: ["training-options"],
+    queryFn: api.getTrainingOptions,
+    staleTime: 60 * 60 * 1000,
+  });
+
+  const trainingMutation = useMutation({
+    mutationFn: ({ horseId, program }: { horseId: string; program: string }) =>
+      api.setTraining(horseId, program),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["horses"] }),
+  });
   const [selectedTrack, setSelectedTrack] = useState("");
 
   const homeTrackMutation = useMutation({
@@ -170,8 +182,8 @@ export default function StablePage() {
       <div className="space-y-3">
         {horseList.map((h: any) => (
           <Card key={h.id} hoverable onClick={() => router.push(`/stable/${h.id}`)}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-4 min-w-[220px]">
                 <div>
                   <div className="font-semibold text-gray-200 flex items-center gap-2">
                     {h.name}
@@ -191,7 +203,7 @@ export default function StablePage() {
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-5">
+              <div className="flex items-center gap-5 flex-wrap">
                 <div>
                   <div className="text-[10px] text-gray-500 mb-0.5">Total</div>
                   <SkillBars rating={h.total_skill || calculateSkillRating(h)} compact />
@@ -216,6 +228,24 @@ export default function StablePage() {
                 <div className="text-right min-w-[60px]">
                   <div className="text-[10px] text-gray-500">Intjäning</div>
                   <div className="text-sm text-trav-gold">{formatOre(h.total_earnings || 0)}</div>
+                </div>
+                <div
+                  className="w-[150px]"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="text-[10px] text-gray-500 mb-0.5">Dagens pass</div>
+                  <select
+                    value={h.daily_training || "light"}
+                    onChange={(e) => trainingMutation.mutate({ horseId: h.id, program: e.target.value })}
+                    disabled={trainingMutation.isPending}
+                    className="w-full bg-trav-bg border border-trav-border rounded-md px-2 py-1 text-xs text-gray-200 focus:border-trav-gold/50 disabled:opacity-50"
+                  >
+                    {(trainingOptions?.options || []).map((o: any) => (
+                      <option key={o.key} value={o.key}>
+                        {o.label}{o.cost > 0 ? ` (${formatOre(o.cost)})` : ""}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>

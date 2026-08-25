@@ -380,6 +380,10 @@ async def simulate_race_session(db: AsyncSession, session_id):
     gs_result = await db.execute(select(GameState).where(GameState.id == 1))
     gs = gs_result.scalar_one_or_none()
     game_week = gs.current_game_week if gs else 1
+    game_time = (
+        calculate_game_time(gs.real_week_start) if gs
+        else {"game_week": game_week, "game_day": 1, "total_game_days": 1}
+    )
 
     # Pre-load caretaker assignments for all horses in this session
     from app.models.caretaker import CaretakerAssignment, Caretaker, CaretakerScoutReport
@@ -439,6 +443,11 @@ async def simulate_race_session(db: AsyncSession, session_id):
             d = e.driver
 
             hs = _horse_to_engine_stats(h)
+
+            # Formfönster från stallrundan (+10 form i fem dagar)
+            window_until = getattr(h, "form_window_until_day", None)
+            if window_until and window_until >= game_time["total_game_days"]:
+                hs.form = min(100, hs.form + (getattr(h, "form_window_bonus", 0) or 0))
             ds = _driver_to_engine_stats(d)
 
             # Apply caretaker boosts to engine stats

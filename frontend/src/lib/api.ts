@@ -67,6 +67,17 @@ export const api = {
   // Finances
   getFinancialOverview: () => apiFetch<any>("/finances/overview"),
   getDebtStatus: () => apiFetch<any>("/finances/debt"),
+
+  // Dagsloop (sprint 3)
+  getTrainingOptions: () => apiFetch<any>("/daily/training-options"),
+  setTraining: (horseId: string, program: string) =>
+    apiFetch<any>("/daily/training", { method: "POST", body: JSON.stringify({ horse_id: horseId, program }) }),
+  runStableRound: () => apiFetch<any>("/daily/stable-round", { method: "POST" }),
+  getPendingEvents: () => apiFetch<any>("/daily/events"),
+  resolveEvent: (eventId: string, choice: string) =>
+    apiFetch<any>(`/daily/events/${eventId}/resolve`, { method: "POST", body: JSON.stringify({ choice }) }),
+  getTimeMode: () => apiFetch<any>("/game/time-mode"),
+  nextDay: () => apiFetch<any>("/game/next-day", { method: "POST" }),
   takeLoan: (amount: number) =>
     apiFetch<any>("/finances/loan", { method: "POST", body: JSON.stringify({ amount }) }),
   repayLoan: (amount: number) =>

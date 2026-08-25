@@ -38,6 +38,8 @@ class Stable(Base):
     forced_sale_deadline_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
     debt_warning_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
     restarts_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_stable_round_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_serious_event_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     user = relationship("User", back_populates="stable")
     horses = relationship("Horse", back_populates="stable", foreign_keys="Horse.stable_id", passive_deletes=True)

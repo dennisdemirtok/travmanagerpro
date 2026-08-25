@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { formatOre } from "@/lib/utils";
 import { Card } from "@/components/ui/Card";
+import { StableRound } from "@/components/game/StableRound";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 
@@ -50,16 +51,7 @@ export default function DashboardPage() {
   const [prTone, setPrTone] = useState("confident");
   const [prContent, setPrContent] = useState("");
   const [prResult, setPrResult] = useState<any>(null);
-  const [showCheckupModal, setShowCheckupModal] = useState(false);
   const [devMsg, setDevMsg] = useState("");
-
-  const checkupMutation = useMutation({
-    mutationFn: api.dailyCheckup,
-    onSuccess: (data) => {
-      setShowCheckupModal(true);
-      queryClient.invalidateQueries();
-    },
-  });
 
   const prMutation = useMutation({
     mutationFn: () => api.createPressRelease(prTone, prContent),
@@ -170,80 +162,9 @@ export default function DashboardPage() {
         </Card>
       )}
 
-      {/* Daily checkup */}
-      <Card>
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-gray-300">🐴 Daglig tillsyn</h3>
-            <p className="text-xs text-gray-500">Kör stallrunda — kontrollera hästar, träningsresultat och händelser</p>
-          </div>
-          <Button onClick={() => checkupMutation.mutate()} disabled={checkupMutation.isPending}>
-            {checkupMutation.isPending ? "Kör runda..." : "Kör stallrunda"}
-          </Button>
-        </div>
-        {checkupMutation.data && !showCheckupModal && (
-          <div className="mt-3 text-xs text-gray-400 flex items-center gap-2">
-            <span>{checkupMutation.data.processed} hästar kontrollerade.</span>
-            {(checkupMutation.data.events?.length || 0) > 0 && (
-              <button onClick={() => setShowCheckupModal(true)} className="text-trav-gold hover:underline">Visa rapport →</button>
-            )}
-          </div>
-        )}
-      </Card>
+      {/* Dagsloopen: träning + stallrunda + beslut */}
+      <StableRound />
 
-      {/* Stallrunda result modal */}
-      {showCheckupModal && checkupMutation.data && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={() => setShowCheckupModal(false)}>
-          <div className="bg-trav-card border border-trav-border rounded-xl p-6 w-full max-w-lg max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-200">🐴 Stallrunderapport</h3>
-              <span className="text-xs text-gray-500">{checkupMutation.data.processed} hästar kontrollerade</span>
-            </div>
-
-            {(checkupMutation.data.events?.length || 0) === 0 ? (
-              <div className="text-center py-6">
-                <div className="text-3xl mb-2">✅</div>
-                <p className="text-gray-400">Allt lugnt i stallet. Inga särskilda händelser idag.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {checkupMutation.data.events.map((e: any, i: number) => (
-                  <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-trav-bg border border-trav-border/50">
-                    <span className="text-xl">{EVENT_ICONS[e.type] || "📋"}</span>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-gray-200 text-sm">{e.horse}</span>
-                        <span className={`text-xs font-medium ${EVENT_COLORS[e.type] || "text-gray-400"}`}>
-                          {e.type === "training_complete" && "Träning klar"}
-                          {e.type === "injury" && "Skadad"}
-                          {e.type === "fatigue" && "Uttröttad"}
-                          {e.type === "recovered" && "Återhämtad"}
-                        </span>
-                      </div>
-                      <p className="text-xs text-gray-400 mt-0.5">{e.detail}</p>
-                      {e.stat_changes && Object.values(e.stat_changes).some((v: any) => v > 0) && (
-                        <div className="flex flex-wrap gap-1.5 mt-1.5">
-                          {Object.entries(e.stat_changes as Record<string, number>)
-                            .filter(([, v]) => v > 0)
-                            .map(([stat, val]) => (
-                              <span key={stat} className="text-[10px] px-1.5 py-0.5 rounded bg-green-900/30 text-green-400 border border-green-700/30">
-                                {STAT_LABELS[stat] || stat} +{val}
-                              </span>
-                            ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="mt-5 flex justify-end">
-              <Button onClick={() => setShowCheckupModal(false)}>Stäng</Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div className="grid grid-cols-2 gap-6">
         {/* Events + Transactions */}

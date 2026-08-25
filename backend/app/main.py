@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
 
-from app.api import auth, stable, horses, races, drivers, finances, events, game, sponsors, market, breeding, training, leaderboard, caretakers
+from app.api import auth, stable, horses, races, drivers, finances, events, game, sponsors, market, breeding, training, leaderboard, caretakers, daily
 from app.core.database import init_db, close_db, async_session
 from app.services import race_ticker_service
 
@@ -81,6 +81,7 @@ app.include_router(breeding.router, prefix="/api/v1/breeding", tags=["breeding"]
 app.include_router(training.router, prefix="/api/v1/training", tags=["training"])
 app.include_router(leaderboard.router, prefix="/api/v1/leaderboard", tags=["leaderboard"])
 app.include_router(caretakers.router, prefix="/api/v1/caretakers", tags=["caretakers"])
+app.include_router(daily.router, prefix="/api/v1/daily", tags=["daily"])
 
 
 # Temporary: Test race engine directly

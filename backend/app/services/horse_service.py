@@ -162,6 +162,11 @@ def _horse_to_dict(h: Horse) -> dict:
         "injury_type": h.injury_type,
         "injury_recovery_weeks": h.injury_recovery_weeks or 0,
         "confidence": getattr(h, 'confidence', 50) or 50,
+        "daily_training": getattr(h, 'daily_training', 'light') or 'light',
+        "hard_training_streak": getattr(h, 'hard_training_streak', 0) or 0,
+        "form_window_until_day": getattr(h, 'form_window_until_day', None),
+        "form_window_bonus": getattr(h, 'form_window_bonus', 0) or 0,
+        "equipment_damaged": bool(getattr(h, 'equipment_damaged', False)),
     }
 
 

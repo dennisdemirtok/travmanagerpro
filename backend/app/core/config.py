@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     NPC_MIN_FIELD_SIZE: int = 8
     NPC_MAX_FIELD_SIZE: int = 12
 
+    # 'manual' = spelaren stegar dagar själv med "Nästa dag" (early access)
+    # 'realtime' = klockan går av sig själv
+    TIME_MODE: str = "manual"
+
     model_config = {"env_file": ".env", "extra": "ignore"}
 
     @model_validator(mode="after")
