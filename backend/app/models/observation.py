@@ -21,3 +21,32 @@ class HorseObservation(Base):
     confidence_level: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=0.5)
     race_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("races.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class HorseNote(Base):
+    """Spelarens egna anteckningar i hästdagboken."""
+    __tablename__ = "horse_notes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    horse_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
+    stable_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("stables.id", ondelete="CASCADE"), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    game_week: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class HorseTag(Base):
+    """Taggar spelaren själv sätter, t.ex. 'Barfota ✓' eller 'Ej täta starter'."""
+    __tablename__ = "horse_tags"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=func.uuid_generate_v4())
+    horse_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("horses.id", ondelete="CASCADE"), nullable=False)
+    stable_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("stables.id", ondelete="CASCADE"), nullable=False)
+    tag: Mapped[str] = mapped_column(String(40), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())

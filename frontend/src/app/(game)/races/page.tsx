@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/Badge";
 const POSITIONING = [
   { value: "lead", label: "Ledning" },
   { value: "second", label: "Andra par" },
-  { value: "outside", label: "Ytterspar" },
+  { value: "outside", label: "Ytterspår" },
   { value: "trailing", label: "Sista" },
   { value: "back", label: "Bakre" },
 ];
@@ -33,17 +33,17 @@ const SHOES = [
 const GALLOP_SAFETY = [
   { value: "safe", label: "Försiktig", desc: "Lägre risk, lugnare lopp" },
   { value: "normal", label: "Normal", desc: "Balanserad riskprofil" },
-  { value: "aggressive", label: "Aggressiv", desc: "Högre risk, bättre position" },
+  { value: "risky", label: "Offensiv", desc: "Högre risk, bättre position" },
 ];
 const CURVE_STRATEGY = [
-  { value: "inside", label: "Innerled", desc: "Kortare väg, trångt" },
-  { value: "middle", label: "Mellanled", desc: "Balanserat" },
-  { value: "outside", label: "Ytterled", desc: "Fri väg, längre" },
+  { value: "inner", label: "Innerspår", desc: "Kortare väg, risk att bli instängd" },
+  { value: "middle", label: "Mittspår", desc: "Balanserat" },
+  { value: "outer", label: "Ytterspår", desc: "Fri väg, längre" },
 ];
 const WHIP_USAGE = [
-  { value: "none", label: "Ingen piska" },
+  { value: "gentle", label: "Sparsamt" },
   { value: "normal", label: "Normal" },
-  { value: "aggressive", label: "Aggressiv" },
+  { value: "aggressive", label: "Offensivt" },
 ];
 const SULKY = [
   { value: "european", label: "Europeisk", desc: "Standard, stabil" },
@@ -86,6 +86,12 @@ export default function RacesPage() {
       setEntryModal(null);
     },
     onError: (err: any) => setEntryError(err.message),
+  });
+
+  const { data: analysis } = useQuery({
+    queryKey: ["opposition", entryModal?.id, selectedHorse],
+    queryFn: () => api.getOppositionAnalysis(entryModal.id, selectedHorse),
+    enabled: Boolean(entryModal?.id && selectedHorse),
   });
 
   const handleEnter = () => {
@@ -356,6 +362,54 @@ export default function RacesPage() {
                 <div className="text-gray-500">Distans: <span className="text-gray-300">{entryModal.distance}m</span></div>
               </div>
             </div>
+
+            {/* Motståndsanalys — smart anmälning är en spelmekanik */}
+            {selectedHorse && analysis && !analysis.error && (
+              <div
+                className="rounded-lg border p-3 mb-3"
+                style={{
+                  borderColor: analysis.verdict_color + "44",
+                  backgroundColor: analysis.verdict_color + "0D",
+                }}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                    Motståndsanalys
+                  </span>
+                  <span
+                    className="text-sm font-bold tracking-wide"
+                    style={{ color: analysis.verdict_color }}
+                  >
+                    {analysis.verdict_label}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center mb-2">
+                  <div>
+                    <div className="text-[10px] text-gray-500">Din häst</div>
+                    <div className="text-sm font-bold text-gray-100 tabular-nums">{analysis.your_rating}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">Fältsnitt</div>
+                    <div className="text-sm font-bold text-gray-400 tabular-nums">{analysis.field_average}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] text-gray-500">Bästa i fältet</div>
+                    <div className="text-sm font-bold text-gray-400 tabular-nums">{analysis.field_top}</div>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-gray-500 mb-1">
+                  <span>
+                    Startpoäng {analysis.start_points}/{analysis.min_start_points}{" "}
+                    {analysis.qualifies ? "✓" : "✗"}
+                  </span>
+                  <span>Självförtroende {analysis.confidence}</span>
+                </div>
+                {analysis.warnings?.map((w: string, i: number) => (
+                  <p key={i} className="text-[10px] text-orange-300/90 mt-1">! {w}</p>
+                ))}
+                <p className="text-[10px] text-gray-600 mt-1.5">{analysis.note}</p>
+              </div>
+            )}
 
             {/* Taktiktips */}
             <div className="bg-blue-900/10 border border-blue-700/20 rounded-lg p-2.5 mb-3">

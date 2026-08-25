@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { formatOre, statColor } from "@/lib/utils";
 import { Card } from "@/components/ui/Card";
+import { HorseDiary } from "@/components/game/HorseDiary";
 import { StatBar } from "@/components/ui/StatBar";
 import { SkillBars, calculateSkillRating } from "@/components/ui/SkillBars";
 import { Badge } from "@/components/ui/Badge";
@@ -471,6 +472,9 @@ export default function HorseDetailPage() {
           </div>
         )}
       </Card>
+
+      {/* Hästdagbok — observationer, taggar och egna anteckningar */}
+      <HorseDiary horseId={id} />
 
       {/* Compatibility */}
       {horse.compatibility_with_drivers?.length > 0 && (

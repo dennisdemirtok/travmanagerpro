@@ -77,6 +77,19 @@ export const api = {
   resolveEvent: (eventId: string, choice: string) =>
     apiFetch<any>(`/daily/events/${eventId}/resolve`, { method: "POST", body: JSON.stringify({ choice }) }),
   getTimeMode: () => apiFetch<any>("/game/time-mode"),
+
+  // Hästdagbok + motståndsanalys (sprint 4)
+  getHorseDiary: (horseId: string) => apiFetch<any>(`/diary/horse/${horseId}`),
+  addDiaryNote: (horseId: string, text: string) =>
+    apiFetch<any>(`/diary/horse/${horseId}/notes`, { method: "POST", body: JSON.stringify({ text }) }),
+  deleteDiaryNote: (noteId: string) =>
+    apiFetch<any>(`/diary/notes/${noteId}`, { method: "DELETE" }),
+  addHorseTag: (horseId: string, tag: string) =>
+    apiFetch<any>(`/diary/horse/${horseId}/tags`, { method: "POST", body: JSON.stringify({ tag }) }),
+  deleteHorseTag: (tagId: string) =>
+    apiFetch<any>(`/diary/tags/${tagId}`, { method: "DELETE" }),
+  getOppositionAnalysis: (raceId: string, horseId: string) =>
+    apiFetch<any>(`/diary/analysis/${raceId}/${horseId}`),
   nextDay: () => apiFetch<any>("/game/next-day", { method: "POST" }),
   takeLoan: (amount: number) =>
     apiFetch<any>("/finances/loan", { method: "POST", body: JSON.stringify({ amount }) }),
