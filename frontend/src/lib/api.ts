@@ -90,6 +90,11 @@ export const api = {
     apiFetch<any>(`/diary/tags/${tagId}`, { method: "DELETE" }),
   getOppositionAnalysis: (raceId: string, horseId: string) =>
     apiFetch<any>(`/diary/analysis/${raceId}/${horseId}`),
+
+  // Säsongsmål och sammanfattning (sprint 6)
+  getSeasonGoals: () => apiFetch<any>("/season/goals"),
+  getSeasonSummary: (seasonNumber?: number) =>
+    apiFetch<any>(`/season/summary${seasonNumber ? `?season_number=${seasonNumber}` : ""}`),
   nextDay: () => apiFetch<any>("/game/next-day", { method: "POST" }),
   takeLoan: (amount: number) =>
     apiFetch<any>("/finances/loan", { method: "POST", body: JSON.stringify({ amount }) }),

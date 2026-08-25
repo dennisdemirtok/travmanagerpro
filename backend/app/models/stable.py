@@ -43,6 +43,8 @@ class Stable(Base):
     ai_personality: Mapped[str | None] = mapped_column(String(20), nullable=True)
     difficulty_tier: Mapped[str] = mapped_column(String(10), default="normal", server_default="normal")
     player_starts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    season_goals_generated: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_season_summary: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     user = relationship("User", back_populates="stable")
     horses = relationship("Horse", back_populates="stable", foreign_keys="Horse.stable_id", passive_deletes=True)

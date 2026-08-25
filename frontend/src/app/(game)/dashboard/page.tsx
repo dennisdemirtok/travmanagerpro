@@ -6,6 +6,7 @@ import { api } from "@/lib/api";
 import { formatOre } from "@/lib/utils";
 import { Card } from "@/components/ui/Card";
 import { StableRound } from "@/components/game/StableRound";
+import { SeasonGoals } from "@/components/game/SeasonGoals";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 
@@ -161,6 +162,9 @@ export default function DashboardPage() {
           </div>
         </Card>
       )}
+
+      {/* Säsongens mål och berättelse */}
+      <SeasonGoals />
 
       {/* Dagsloopen: träning + stallrunda + beslut */}
       <StableRound />

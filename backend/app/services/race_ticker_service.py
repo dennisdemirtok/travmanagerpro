@@ -147,6 +147,21 @@ async def tick_races(db: AsyncSession) -> list[dict]:
         if recovered > 0:
             logger.info(f"Injury recovery: {recovered} horses healed in week {current_week}")
 
+        # 6b. Uppdatera säsongsmål för alla spelarstall (betalar ut belöningar)
+        from app.services import season_service
+        from app.models.stable import Stable as _Stable
+        player_stables = (await db.execute(
+            select(_Stable).where(_Stable.is_npc == False)
+        )).scalars().all()
+        for ps in player_stables:
+            try:
+                await season_service.refresh_goals(db, ps.id, current_week)
+            except Exception as exc:
+                logger.warning(f"Kunde inte uppdatera säsongsmål för {ps.id}: {exc}")
+
+        # 6c. Rätta ev. felaktig säsongslängd innan övergången utvärderas
+        await _heal_season_length(db, gs)
+
         # 7. Season transition: age horses at end of each season
         aged = await _check_season_transition(db, current_week, gs)
         if aged > 0:
@@ -228,6 +243,29 @@ async def tick_races(db: AsyncSession) -> list[dict]:
     return simulated
 
 
+async def _heal_season_length(db: AsyncSession, gs: GameState) -> bool:
+    """Rätta säsonger vars längd inte matchar SEASON_LENGTH_WEEKS.
+
+    Databaser som skapades när en säsong var längre visar annars fel
+    ("vecka 25/32") och byter aldrig säsong i rätt takt.
+    """
+    if not gs or not gs.current_season_id:
+        return False
+    season = await db.get(Season, gs.current_season_id)
+    if not season:
+        return False
+    expected_end = season.start_game_week + SEASON_LENGTH_WEEKS - 1
+    if season.end_game_week == expected_end:
+        return False
+    logger.info(
+        f"Rättar säsong {season.season_number}: slutvecka "
+        f"{season.end_game_week} → {expected_end}"
+    )
+    season.end_game_week = expected_end
+    await db.flush()
+    return True
+
+
 async def _check_season_transition(db: AsyncSession, current_week: int, gs: GameState) -> int:
     """Check if the current season has ended and transition to a new one.
     Each season = SEASON_LENGTH_WEEKS game weeks = 1 horse year.
@@ -260,17 +298,37 @@ async def _check_season_transition(db: AsyncSession, current_week: int, gs: Game
     season.is_active = False
     season.current_period = SeasonPeriod.OFF_SEASON
 
-    # 3. Create new season
+    # 2b. Upp- och nedflyttning efter säsongspoäng
+    from app.services import season_service
+    movement = await season_service.apply_division_movement(db, season.season_number)
+    if movement["promoted"] or movement["relegated"]:
+        logger.info(
+            f"Divisionsflytt: {movement['promoted']} upp, {movement['relegated']} ner"
+        )
+
+    # 3. Create new season(s). Spelklockan kan ha hunnit långt förbi
+    # säsongsslutet (t.ex. efter driftstopp eller migrerad databas), så
+    # rulla fram tills säsongen faktiskt innehåller nuvarande vecka.
     new_start = season.end_game_week + 1
-    new_season = Season(
-        season_number=season.season_number + 1,
-        start_game_week=new_start,
-        end_game_week=new_start + SEASON_LENGTH_WEEKS - 1,
-        current_period=SeasonPeriod.REGULAR,
-        is_active=True,
-    )
-    db.add(new_season)
-    await db.flush()
+    season_number = season.season_number + 1
+    while True:
+        new_season = Season(
+            season_number=season_number,
+            start_game_week=new_start,
+            end_game_week=new_start + SEASON_LENGTH_WEEKS - 1,
+            current_period=SeasonPeriod.REGULAR,
+            is_active=True,
+        )
+        db.add(new_season)
+        await db.flush()
+        if new_season.end_game_week >= current_week:
+            break
+        # Säsongen är redan passerad — åldra hästarna igen och gå vidare
+        new_season.is_active = False
+        new_season.current_period = SeasonPeriod.OFF_SEASON
+        aged += await _age_horses(db)
+        new_start = new_season.end_game_week + 1
+        season_number += 1
 
     # 4. Update game state to point to new season
     gs.current_season_id = new_season.id

@@ -11,4 +11,5 @@ from app.models.facility import Facility, Staff, FeedPlan  # noqa: F401
 from app.models.achievement import AchievementDefinition, StableAchievement  # noqa: F401
 from app.models.caretaker import Caretaker, CaretakerAssignment, CaretakerScoutReport  # noqa: F401
 from app.models.hidden_properties import HorseHiddenProperties  # noqa: F401
-from app.models.observation import HorseObservation  # noqa: F401
+from app.models.observation import HorseObservation, HorseNote, HorseTag  # noqa: F401
+from app.models.season_goal import SeasonGoal  # noqa: E402,F401
