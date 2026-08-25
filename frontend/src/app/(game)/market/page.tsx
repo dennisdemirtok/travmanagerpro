@@ -280,6 +280,24 @@ export default function MarketPage() {
                       </div>
                       <div className="text-xs text-gray-500">Utropspris</div>
                       <div className="text-sm text-gray-300">{formatOre(l.starting_price)}</div>
+                      {l.estimated_value != null && (
+                        <div className="text-[10px] mt-0.5">
+                          <span className="text-gray-600">Värde {formatOre(l.estimated_value)}</span>
+                          {l.value_diff_pct != null && (
+                            <span
+                              className="ml-1.5 font-semibold"
+                              style={{ color: l.value_diff_pct < -8 ? "#4ADE80" : l.value_diff_pct > 8 ? "#F87171" : "#9AA0AE" }}
+                            >
+                              {l.value_diff_pct > 0 ? "+" : ""}{l.value_diff_pct} %
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {l.is_bargain && (
+                        <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-500/15 border border-green-500/40 text-green-400">
+                          FYND
+                        </span>
+                      )}
                       {l.buyout_price && (
                         <>
                           <div className="text-xs text-gray-500 mt-1">Köp direkt</div>

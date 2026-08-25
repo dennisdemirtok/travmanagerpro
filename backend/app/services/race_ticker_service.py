@@ -175,14 +175,24 @@ async def tick_races(db: AsyncSession) -> list[dict]:
         # 8b. Se till att alla AI-stall har en personlighet
         await auto_enter_npc_module.ensure_stable_personalities(db)
 
-        # 9. Seed new NPC listings periodically (every 2 weeks)
-        if current_week % 2 == 0:
-            seeded = await market_service.seed_npc_listings(db, current_week, count=2)
-            if seeded > 0:
-                logger.info(f"Seeded {seeded} NPC market listings")
+        # 9. Marknaden roteras dagligen i stället — se nedan
 
         gs.last_weekly_processing_week = current_week
         await db.flush()
+
+    # Levande marknad: rotera listningar och låt AI bjuda, en gång per speldag
+    if gs.last_market_refresh_day is None or current_total_day > gs.last_market_refresh_day:
+        try:
+            market = await market_service.refresh_market(db, current_week, current_total_day)
+            ai_bids = await market_service.run_ai_bidding(db, current_total_day)
+            gs.last_market_refresh_day = current_total_day
+            if market["created"] or ai_bids:
+                logger.info(
+                    f"Marknad dag {current_total_day}: +{market['created']} listningar, "
+                    f"{market['expired']} utgångna, {ai_bids} AI-bud"
+                )
+        except Exception as exc:
+            logger.warning(f"Marknadsuppdatering misslyckades: {exc}")
 
     # Update stored game week
     gs.current_game_week = current_week

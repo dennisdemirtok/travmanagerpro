@@ -62,6 +62,7 @@ class GameState(Base):
     npc_scaling_factor: Mapped[Decimal] = mapped_column(Numeric(3, 2), default=0.70)
     last_recovery_game_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_weekly_processing_week: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_market_refresh_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class DailyHorseLog(Base):

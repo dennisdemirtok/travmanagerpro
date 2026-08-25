@@ -123,6 +123,13 @@ async def get_market_listings(db: AsyncSession, stable_id=None, current_game_wee
             "listed_week": l.listed_game_week,
             "days_remaining": days_remaining,
             "is_own": str(l.seller_stable_id) == str(stable_id) if stable_id else False,
+            # Marknadsvärdering — låter spelaren se om priset är rimligt
+            "estimated_value": getattr(l, "estimated_value", None),
+            "is_bargain": bool(getattr(l, "is_bargain", False)),
+            "value_diff_pct": (
+                round((l.starting_price - l.estimated_value) / l.estimated_value * 100)
+                if getattr(l, "estimated_value", None) else None
+            ),
         })
 
     # Count bids per listing
@@ -504,47 +511,46 @@ async def get_horse_public_profile(db: AsyncSession, horse_id) -> dict | None:
     }
 
 
-async def seed_npc_listings(db: AsyncSession, game_week: int, count: int = 3):
-    """Create NPC horse listings to populate the market.
-    Called during game init or periodically to keep the market active.
+async def seed_npc_listings(db: AsyncSession, game_week: int, count: int = 3,
+                            total_day: int = None, rng=None):
+    """Lägg upp AI-hästar till salu. Priset utgår från hästens beräknade
+    marknadsvärde, och ibland dyker ett fynd upp: en häst med en dold
+    toppegenskap som säljs under värde.
     """
     import random
+    from app.services.valuation_service import calculate_horse_value
 
-    # Find NPC horses not already listed
+    rng = rng or random.Random(game_week * 777 + (total_day or 0))
+
     listed_result = await db.execute(
         select(AuctionListing.horse_id).where(AuctionListing.status == "active")
     )
     listed_ids = {row[0] for row in listed_result.all()}
 
-    npc_horses_result = await db.execute(
-        select(Horse)
-        .where(
-            Horse.is_npc == True,
-            Horse.status == "ready",
-            Horse.id.notin_(listed_ids) if listed_ids else True,
-        )
-        .order_by(Horse.total_earnings.desc())
-        .limit(count * 2)  # get extra to select from
-    )
-    npc_horses = npc_horses_result.scalars().all()
-
+    q = select(Horse).where(Horse.is_npc == True, Horse.status == "ready")
+    if listed_ids:
+        q = q.where(Horse.id.notin_(listed_ids))
+    npc_horses = (await db.execute(q.limit(count * 6))).scalars().all()
     if not npc_horses:
         return 0
 
-    rng = random.Random(game_week * 777)
     selected = rng.sample(npc_horses, min(count, len(npc_horses)))
     created = 0
 
     for horse in selected:
-        # Price based on stats and career
-        avg_stat = (horse.speed + horse.endurance + horse.mentality +
-                    horse.start_ability + horse.sprint_strength +
-                    horse.balance + horse.strength) / 7
-        base_price = int(avg_stat * 50_000)
-        career_bonus = horse.total_wins * 200_000 + horse.total_starts * 30_000
-        starting_price = base_price + career_bonus + rng.randint(-500_000, 500_000)
-        starting_price = max(500_000, starting_price)  # Minimum 500k
-        buyout_price = int(starting_price * rng.uniform(1.5, 2.5))
+        value = calculate_horse_value(horse)
+
+        # 10 % chans per dag att ett fynd dyker upp
+        is_bargain = rng.random() < 0.10
+        if is_bargain:
+            # Fyndet har en dold toppegenskap och säljs 30-45 % under värde
+            await _grant_hidden_gem(db, horse, rng)
+            starting_price = int(value * rng.uniform(0.55, 0.70))
+        else:
+            starting_price = int(value * rng.uniform(0.85, 1.05))
+
+        starting_price = max(300_000, starting_price)
+        buyout_price = int(starting_price * rng.uniform(1.4, 2.0))
 
         listing = AuctionListing(
             horse_id=horse.id,
@@ -553,10 +559,111 @@ async def seed_npc_listings(db: AsyncSession, game_week: int, count: int = 3):
             buyout_price=buyout_price,
             status="active",
             listed_game_week=game_week,
-            expires_game_week=game_week + 1,  # ~5 days
+            expires_game_week=game_week + 1,
+            is_bargain=is_bargain,
+            estimated_value=value,
+            # AI:n slutar bjuda strax under värdet — den vill också ha marginal
+            ai_max_bid=int(value * rng.uniform(0.80, 0.98)),
+            listed_total_day=total_day,
+            expires_total_day=(total_day + 1) if total_day else None,
         )
         db.add(listing)
         created += 1
 
     await db.flush()
     return created
+
+
+async def _grant_hidden_gem(db: AsyncSession, horse, rng):
+    """Ge fyndhästen en dold toppegenskap som gör den värd mer än priset."""
+    try:
+        from app.services.hidden_properties_service import ensure_hidden_properties
+    except ImportError:
+        return
+    props = await ensure_hidden_properties(db, horse.id)
+    if not props:
+        return
+    gem = rng.choice(["sprint_gear", "barefoot", "curves", "homestretch"])
+    if gem == "sprint_gear":
+        props.hidden_sprint_gear = True
+    elif gem == "barefoot":
+        props.barefoot_affinity = max(props.barefoot_affinity or 0, rng.randint(20, 30))
+    elif gem == "curves":
+        props.tight_curve_ability = max(props.tight_curve_ability or 0, rng.randint(15, 20))
+    else:
+        props.long_homestretch_affinity = max(
+            props.long_homestretch_affinity or 0, rng.randint(15, 20)
+        )
+    await db.flush()
+
+
+async def refresh_market(db: AsyncSession, game_week: int, total_day: int,
+                         target_listings: int = 8) -> dict:
+    """Rotera marknaden dagligen så den alltid har 6-10 hästar till salu."""
+    import random
+
+    active = (await db.execute(
+        select(AuctionListing).where(AuctionListing.status == "active")
+    )).scalars().all()
+
+    rng = random.Random(total_day * 9173)
+
+    # Låt gamla listningar löpa ut
+    expired = 0
+    for listing in active:
+        exp_day = getattr(listing, "expires_total_day", None)
+        if exp_day is not None and total_day > exp_day and not listing.current_bid:
+            listing.status = "expired"
+            expired += 1
+
+    remaining = [l for l in active if l.status == "active"]
+    wanted = rng.randint(6, 10)
+    needed = max(0, wanted - len(remaining))
+
+    created = 0
+    if needed:
+        created = await seed_npc_listings(
+            db, game_week, count=needed, total_day=total_day, rng=rng
+        )
+
+    await db.flush()
+    return {"created": created, "expired": expired, "active": len(remaining) + created}
+
+
+async def run_ai_bidding(db: AsyncSession, total_day: int) -> int:
+    """AI-stall bjuder mot spelaren på pågående auktioner."""
+    import random
+
+    listings = (await db.execute(
+        select(AuctionListing).where(AuctionListing.status == "active")
+    )).scalars().all()
+
+    rng = random.Random(total_day * 4211)
+    bids = 0
+
+    for listing in listings:
+        ai_max = getattr(listing, "ai_max_bid", None)
+        if not ai_max:
+            continue
+        current = listing.current_bid or 0
+        if current == 0:
+            continue  # AI:n öppnar inte budgivningen — spelaren får första ordet
+        if listing.current_bidder_id is None:
+            continue
+        # AI:n bjuder bara mot någon annan, och bara upp till sitt tak
+        bidder = await db.get(Stable, listing.current_bidder_id)
+        if bidder and bidder.is_npc:
+            continue
+        if rng.random() > 0.55:
+            continue
+
+        next_bid = current + max(50_000, int(current * rng.uniform(0.04, 0.12)))
+        if next_bid > ai_max:
+            continue
+
+        listing.current_bid = next_bid
+        listing.current_bidder_id = listing.seller_stable_id
+        bids += 1
+
+    await db.flush()
+    return bids

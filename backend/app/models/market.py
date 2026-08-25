@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, String
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
@@ -23,6 +23,11 @@ class AuctionListing(Base):
     status: Mapped[str] = mapped_column(String(20), default="active")
     listed_game_week: Mapped[int] = mapped_column(Integer, nullable=False)
     expires_game_week: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_bargain: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    estimated_value: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    ai_max_bid: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    listed_total_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    expires_total_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 
