@@ -95,6 +95,10 @@ export const api = {
   getSeasonGoals: () => apiFetch<any>("/season/goals"),
   getSeasonSummary: (seasonNumber?: number) =>
     apiFetch<any>(`/season/summary${seasonNumber ? `?season_number=${seasonNumber}` : ""}`),
+
+  // Balansverktyg (sprint 8, dev)
+  runBalanceTest: (opts: { runs: number; stretch_class: string; seed: number }) =>
+    apiFetch<any>(`/balance/simulate?runs=${opts.runs}&stretch_class=${opts.stretch_class}&seed=${opts.seed}`),
   nextDay: () => apiFetch<any>("/game/next-day", { method: "POST" }),
   takeLoan: (amount: number) =>
     apiFetch<any>("/finances/loan", { method: "POST", body: JSON.stringify({ amount }) }),

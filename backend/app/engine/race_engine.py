@@ -457,6 +457,7 @@ class RaceEngine:
         self.events = []
         self.snapshots = []
         self.sector_tracker = {e.horse.id: [] for e in entries}
+        self._rank_cache = {}
         self.conditions = conditions
         self.distance = conditions.distance
         self.total_steps = self.distance // self.STEP_DISTANCE
@@ -501,6 +502,18 @@ class RaceEngine:
         for step in range(1, self.total_steps + 1):
             meters = step * self.STEP_DISTANCE
             remaining = self.distance - meters
+
+            # Rangordna fältet EN gång per steg, innan någon flyttat sig.
+            # Räknades ranken per häst mitt i steget jämfördes de sist
+            # utvärderade mot ett fält som redan sprungit vidare — rank 1
+            # träffades 10 gånger av 504 och taktiklogiken blev godtycklig.
+            self._rank_cache = {}
+            ranked_now = sorted(
+                [e for e in entries if not e.is_disqualified],
+                key=lambda e: e.position_meters, reverse=True,
+            )
+            for _i, _e in enumerate(ranked_now):
+                self._rank_cache[id(_e)] = _i + 1
 
             for entry in entries:
                 if entry.is_disqualified:
@@ -1007,42 +1020,61 @@ class RaceEngine:
         active = [e for e in all_entries if not e.is_disqualified]
         leader = max(active, key=lambda e: e.position_meters, default=None)
 
+        entry._is_leading = (my_rank == 1)
+
         if entry.tactics.positioning == Positioning.LEAD:
             if my_rank > 1:
-                target *= 1.05  # Nerfed from 1.06
+                # Att ta ledningen kräver att man faktiskt trycker på.
+                # Kombinationen "ledning + avvaktande" fick tidigare full
+                # frampress till sparlågepris och vann 47 % av alla lopp.
+                push = {
+                    Tempo.OFFENSIVE: 1.06,
+                    Tempo.BALANCED: 1.045,
+                    Tempo.CAUTIOUS: 1.00,
+                }[entry.tactics.tempo]
+                target *= push
             else:
                 target *= 1.005  # Nerfed from 1.01
             entry.energy_drain_modifier = max(entry.energy_drain_modifier, 1.18)  # Leader always drains more
         elif entry.tactics.positioning == Positioning.SECOND:
             if leader and leader != entry:
-                target = min(target, leader.current_speed * 0.99)
-                entry.energy_drain_modifier *= 0.90  # Drafting bonus
+                if phase == "sprint":
+                    # Ryggen SLÄPPS på upploppet — annars kan en häst i rygg
+                    # aldrig gå förbi ledaren, hur mycket krafter den än sparat.
+                    target *= 1.09
+                else:
+                    target = min(target, leader.current_speed * 0.99)
+                entry.energy_drain_modifier *= 0.85  # Drafting bonus
         elif entry.tactics.positioning == Positioning.OUTSIDE:
             target *= 1.02
             entry.energy_drain_modifier = max(entry.energy_drain_modifier, 1.15)
         elif entry.tactics.positioning == Positioning.TRAILING:
             if leader and leader != entry:
-                target = min(target, leader.current_speed * 1.01)
-                entry.energy_drain_modifier = max(entry.energy_drain_modifier, 1.15)
+                if phase == "sprint":
+                    target *= 1.06
+                else:
+                    target = min(target, leader.current_speed * 1.01)
+                entry.energy_drain_modifier = max(entry.energy_drain_modifier, 1.12)
         elif entry.tactics.positioning == Positioning.BACK:
             if phase == "opening":
                 target *= 0.94
             elif phase == "middle":
                 target *= 0.96
             else:
-                # Dynamic sprint bonus based on leader energy
-                target *= 1.14  # Buffed from 1.12
-                # Check if leaders are tired for extra bonus
+                # Spurtbonus bakifrån. Låg 1.14 + 1.08 och gav i balanstestet
+                # 39 % vinster för "bakifrån + offensivt" över 300 lopp.
+                target *= 1.09
+                # Extra utdelning bara när ledarna verkligen är slut
                 leader_energies = [e.energy for e in all_entries if not e.is_disqualified
                                    and e.tactics.positioning in (Positioning.LEAD, Positioning.OUTSIDE)
                                    and e is not entry]
                 if leader_energies:
                     avg_leader_energy = sum(leader_energies) / len(leader_energies)
-                    if avg_leader_energy < 25:
-                        target *= 1.08  # Leaders dead = huge bonus
-                    elif avg_leader_energy < 40:
-                        target *= 1.04  # Leaders tired
-            entry.energy_drain_modifier *= 0.80  # Better energy savings
+                    if avg_leader_energy < 18:
+                        target *= 1.06
+                    elif avg_leader_energy < 32:
+                        target *= 1.03
+            entry.energy_drain_modifier *= 0.88  # Energibesparing bakifrån
 
         # Sprint zone
         sprint_distances = {
@@ -1142,7 +1174,13 @@ class RaceEngine:
             tempo_energy = {Tempo.OFFENSIVE: 1.20, Tempo.BALANCED: 1.0, Tempo.CAUTIOUS: 0.88}
         else:
             tempo_energy = {Tempo.OFFENSIVE: 1.10, Tempo.BALANCED: 1.05, Tempo.CAUTIOUS: 1.15}
-        energy_cost *= tempo_energy.get(entry.tactics.tempo, 1.0)
+        tempo_mult = tempo_energy.get(entry.tactics.tempo, 1.0)
+        if getattr(entry, "_is_leading", False):
+            # Den som leder bryter vinden oavsett tempo. Utan detta blev
+            # "ledning + avvaktande" billigare än att ligga i fältet, och
+            # kombinationen vann 44 % av alla lopp i balanstestet.
+            tempo_mult = max(tempo_mult, 1.0)
+        energy_cost *= tempo_mult
 
         # Start frequency energy penalty
         energy_cost *= getattr(entry, '_freq_energy_mod', 1.0)
@@ -1586,6 +1624,11 @@ class RaceEngine:
     # ----------------------------------------------------------
 
     def _get_rank(self, entry: RaceEntry, all_entries: list[RaceEntry]) -> int:
+        cached = getattr(self, "_rank_cache", None)
+        if cached:
+            rank = cached.get(id(entry))
+            if rank:
+                return rank
         active = sorted(
             [e for e in all_entries if not e.is_disqualified],
             key=lambda e: e.position_meters, reverse=True,

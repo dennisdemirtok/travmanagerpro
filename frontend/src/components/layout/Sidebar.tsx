@@ -101,6 +101,7 @@ const NAV_ITEMS: { href: string; label: string; icon: IconKey }[] = [
   { href: "/finances", label: "Ekonomi", icon: "finances" },
   { href: "/leaderboard", label: "Topplista", icon: "leaderboard" },
   { href: "/horse-database", label: "Databas", icon: "database" },
+  { href: "/balance", label: "Balans", icon: "leaderboard" },
 ];
 
 export function Sidebar() {
